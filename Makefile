@@ -1,2 +1,2 @@
 main: main.c
-	gcc main.c -o kr
+	gcc main.c -o kr -lm
