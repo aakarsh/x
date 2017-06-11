@@ -1,2 +1,2 @@
-main: main.c
-	gcc main.c -o kr -lm
+x: x.c
+	gcc x.c -o x -lm -lncurses
