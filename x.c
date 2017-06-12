@@ -15,7 +15,8 @@
 static  int DISPLAY_SIZE = 512;
 static  int DEFAULT_BUFFER_SIZE = 8192;
 
-struct buf {
+struct buffer_region {
+
   int size;
   int end_pos;
   int cur_pos;
@@ -24,16 +25,25 @@ struct buf {
   
   /* If buffer is backed by a file */
   char* filepath;
-  long fnext_read;
+  
+  /**
+   * Indices of the part of the file which this region represents.
+   */
+  long freg_begin;
+  long freg_end;
+
   off_t fsize;
 
   char* buf_name;
   char* contents;
+  
+  struct buffer_region* prev;
+  struct buffer_region* next;
 };
 
 struct buffer_list {
   int num_buffers;
-  struct buf* cur;
+  struct buffer_region* cur;
   struct buffer_list* next;
 };
 
@@ -47,9 +57,9 @@ struct buffer_list* buffer_list_create() {
   return list;
 }
 
-struct buf* buffer_alloc(int size,char* buffer_name) {
+struct buffer_region* buffer_alloc(int size,char* buffer_name) {
 
-  struct buf* buffer = malloc(sizeof(struct buf));
+  struct buffer_region* buffer = malloc(sizeof(struct buffer_region));
 
   buffer->size = size;
   buffer->end_pos = 0;
@@ -62,16 +72,16 @@ struct buf* buffer_alloc(int size,char* buffer_name) {
   return buffer;
 }
 
-inline void buffer_rewind(struct buf* buffer){
+inline void buffer_rewind(struct buffer_region* buffer){
   buffer->cur_pos = 0;
 }
 
-inline void buffer_set_point(struct buf* buffer , int point){
+inline void buffer_set_point(struct buffer_region* buffer , int point){
   if(point < buffer->end_pos)
     buffer->cur_pos = point;
 }
 
-inline void buffer_goto_line(struct buf* buffer, int line_number){
+inline void buffer_goto_line(struct buffer_region* buffer, int line_number){
   if(line_number > buffer->num_lines)
     line_number = buffer->num_lines;
   
@@ -90,19 +100,28 @@ inline void buffer_goto_line(struct buf* buffer, int line_number){
 }
   
 
-inline void buffer_truncate(struct buf* buffer){
+inline void buffer_truncate(struct buffer_region* buffer){
   buffer->end_pos = 0;
 }
 
-inline int buffer_size(struct buf* buffer) {
+inline int buffer_size(struct buffer_region* buffer) {
   return buffer->end_pos;
 }
 
-inline int buffer_remaining(struct buf* buffer){
+inline int buffer_remaining(struct buffer_region* buffer){
   return buffer->size - buffer->end_pos;
 }
 
-void buffer_expand(struct buf* buffer, int new_size){
+
+inline bool buffer_endp(struct buffer_region* buf) {
+  return buf->cur_pos >=  buf->end_pos;
+}
+
+inline bool buffer_file_endp(struct buffer_region* buf) {
+  return buf->freg_end >= (long) buf->fsize;
+}
+
+void buffer_expand(struct buffer_region* buffer, int new_size){
   if(new_size < buffer->size)
     return;
 
@@ -125,7 +144,7 @@ void buffer_expand(struct buf* buffer, int new_size){
  * buffer and added later. If NULL terminator exists in the string it
  * will prevent futher copying into the buffer.
  */
-void buffer_append(struct buf* buffer, const char* s, int size) {
+void buffer_append(struct buffer_region* buffer, const char* s, int size) {
   int i = 0;
 
   if(buffer_remaining(buffer) < size) {
@@ -146,7 +165,7 @@ void buffer_append(struct buf* buffer, const char* s, int size) {
  * NULL terminator when its done. Passed in number of bytes don't
  * include the NULL terminator which will be appended to the line.
  */
-int buffer_read(struct buf* buffer, char* read_buffer, int num_bytes) {
+int buffer_read(struct buffer_region* buffer, char* read_buffer, int num_bytes) {
   int read_bytes = 0;
   while(buffer->cur_pos < buffer->end_pos && read_bytes < num_bytes) {
     read_buffer[read_bytes++] = buffer->contents[buffer->cur_pos++];
@@ -159,7 +178,7 @@ int buffer_read(struct buf* buffer, char* read_buffer, int num_bytes) {
  * Counts the number of lines in the buffer. This will involve going
  * through the contents of buffer checking for a new-line.
  */
-int buffer_num_lines(struct buf* buffer) {
+int buffer_num_lines(struct buffer_region* buffer) {
   int number = 1;
   int i = 0;
 
@@ -173,7 +192,7 @@ int buffer_num_lines(struct buf* buffer) {
  * Reads a line from the buffer but if there is no line terminor will
  * end up reading the whole buffer.
  */
-int buffer_readline(struct buf* buffer,char* read_buffer, int num_bytes) {
+int buffer_readline(struct buffer_region* buffer,char* read_buffer, int num_bytes) {
   int read_bytes = 0;
 
   if(buffer->cur_pos >= buffer->end_pos) {
@@ -194,18 +213,20 @@ int buffer_readline(struct buf* buffer,char* read_buffer, int num_bytes) {
  * Fill the rest of the buffer with the contents of the file. Stopping
  * when we reach the end of the file or the buffer.
  */
-int buffer_fill(struct buf* buffer, const char* file_name, long offset) {
+int buffer_fill(struct buffer_region* buffer, const char* file_name, long offset) {
   FILE* file =  fopen(file_name,"r");
 
   if(file == NULL) {
     return errno;
   }
-  fseek(file,offset,offset);
+  
+  fseek(file,offset,0);
   int remaining = buffer_remaining(buffer);
   size_t read_bytes = fread(&(buffer->contents[buffer->end_pos]),1,remaining,file);
 
   buffer->end_pos   += (int) read_bytes;
-  buffer->fnext_read = (long) offset+read_bytes;
+  buffer->freg_begin = (long) offset;
+  buffer->freg_end = (long) offset+read_bytes;
   buffer->num_lines  = buffer_num_lines(buffer);
 
   fclose(file);
@@ -215,21 +236,29 @@ int buffer_fill(struct buf* buffer, const char* file_name, long offset) {
 /**
  * Replace buffer contents with next page form the file.
  */
-int buffer_scroll_down(struct buf* buffer){
-  if(buffer->fnext_read >=  buffer->fsize)
+int buffer_scroll_down(struct buffer_region* buffer){
+  if(buffer->freg_end >=  buffer->fsize)
     return -1;
-
-  buffer_fill(buffer,buffer->filepath,buffer->fnext_read);
-
+  buffer_fill(buffer,buffer->filepath,buffer->freg_end);
   return 0;
+}
+
+/**
+ * If possible replace the buffer with contents of previous page
+ */
+int buffer_scroll_up(struct buffer_region* buffer){
+  long new_offset = buffer->freg_begin - buffer->size; 
+  if(new_offset  <= 0)
+    new_offset = 0;  
+  buffer_fill(buffer, buffer->filepath,new_offset);
 }
 
 
 /**
  * Opens a file given by file path 
  */
-struct buf* buffer_open_file(char* buffer_name, char* file_path) {
-  struct buf* buf = buffer_alloc(DEFAULT_BUFFER_SIZE,buffer_name);
+struct buffer_region* buffer_open_file(char* buffer_name, char* file_path) {
+  struct buffer_region* buf = buffer_alloc(DEFAULT_BUFFER_SIZE,buffer_name);
   struct stat file_stat;
 
   if(0 == stat(file_path, &file_stat)) {
@@ -250,7 +279,7 @@ void test_buffer() {
 
   printf("test_buffer : ");
 
-  struct buf* buffer = buffer_alloc(1000,"foo");
+  struct buffer_region* buffer = buffer_alloc(1000,"foo");
   const char* lines[] = {"hello world ",
                          "how are you ", " hope all is well "};
 
@@ -282,7 +311,7 @@ void test_buffer() {
 
 void test_buffer_file() {
   printf("test_buffer_file : ");
-  struct buf* buffer = buffer_alloc(4096,"foo");
+  struct buffer_region* buffer = buffer_alloc(4096,"foo");
   buffer_fill(buffer,"/proc/vmstat",0);
   int num_lines  = buffer_num_lines(buffer);
   printf("num_lines:%d\n",num_lines);
@@ -311,9 +340,7 @@ void buffer_show(struct buffer_display* display) {
     display->buffer_window = newwin(display->height,display->width,0,0);
   }
 
-  struct buf* buf = all_buffers->cur;
-  buffer_set_point(buf,display->start_pos);
-  int nlines = buffer_num_lines(buf);
+  struct buffer_region* buf = all_buffers->cur;
   
   wmove(display->buffer_window,0,0);
   wrefresh(display->buffer_window);
@@ -327,12 +354,13 @@ void buffer_show(struct buffer_display* display) {
     buffer_readline(buf,cur_line,1024);
     wprintw(display->buffer_window,"%s\n",cur_line);
     
-    // Reached end of buffer but file has more contents
-    if(buf->cur_pos >=  buf->end_pos && buf->fnext_read < (long) buf->fsize) {
+    // Reached end of buffer but file has more bytes
+    if(buffer_endp(buf) && !buffer_file_endp(buf)) {
       buffer_scroll_down(buf);
-    }    
+    }
   }
 }
+
 
 /**
  * Show the mode-line at the bottom of the display.
@@ -342,7 +370,7 @@ void mode_line_show(struct buffer_display* display) {
     display->mode_window = newwin(display->height+10,display->width,display->height,0);
 
   wmove(display->mode_window,0,0);
-  struct buf* cur = all_buffers->cur;
+  struct buffer_region* cur = all_buffers->cur;
   wprintw(display->mode_window,"-[%s, %d, %d]",cur->buf_name,cur->cur_pos,display->start_line);
   int i  = 0;
   for(i  = 0; i < 50; i++)
@@ -366,16 +394,18 @@ void display_loop() {
   refresh();
   bool redisplay = false;
   bool quit = false;
+  
   while(!quit) {
     noecho();
     buffer_show(display);
-    mode_line_show(display);
+
 
     wrefresh(display->mode_window);
     wrefresh(display->buffer_window);
     redisplay = false;
     move(display->start_line,display->cursor_column);
     while(!redisplay) {
+      mode_line_show(display);
       cur = getch();
       if (cur == 3 || cur == 'q') { // quit
         quit = true;
@@ -386,9 +416,9 @@ void display_loop() {
           redisplay = true;
         }        
       } else if (cur == 'k') {
-        move(--display->start_line,display->cursor_column);
+        move(--(display->start_line),display->cursor_column);
         if(display->start_line < 0){
-          display->start_line = 0;
+          redisplay = true;
         }
       } else if (cur == 'l') {
         if(display->cursor_column < display->width)
