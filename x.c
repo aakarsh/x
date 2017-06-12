@@ -15,22 +15,29 @@
 static  int DISPLAY_SIZE = 512;
 static  int DEFAULT_BUFFER_SIZE = 8192;
 
+struct line {
+  // These values are for unmodified buffers lines
+  long line_number;
+  int file_position;
+
+  char * data;
+  int data_len;
+
+  bool modified;
+  struct line* next;
+  struct line* prev;
+};
+
 struct buffer_region {
   off_t size;
   int end_pos;
   int cur_pos;
-  
   int num_lines;
-  
-  /* If buffer is backed by a file */
   char* filepath;
-
-
   off_t fsize;
-
   char* buf_name;
-  char* contents;  
 
+  struct line* lines;
 };
 
 struct buffer_list {
@@ -56,11 +63,12 @@ struct buffer_region* buffer_alloc(off_t size,char* buffer_name) {
   buffer->size = size;
   buffer->end_pos = 0;
   buffer->cur_pos  = 0;
-  buffer->contents = malloc(size*sizeof(char));
-
+  
   int len = strlen(buffer_name);
   buffer->buf_name = (char*) malloc((len+1)*sizeof(char));
   strncpy(buffer->buf_name,buffer_name,len);
+
+
   return buffer;
 }
 
@@ -73,170 +81,96 @@ inline void buffer_set_point(struct buffer_region* buffer , int point){
     buffer->cur_pos = point;
 }
 
-inline void buffer_goto_line(struct buffer_region* buffer, int line_number) {
-  
+
+/**
+ * Return a pointer to a line rather than using indices into content
+ * field.
+ */
+inline struct line* buffer_find_line(struct buffer_region* buffer, int line_number) {
+
   if(line_number <= 0) { // go to begining of buffer
-    buffer_set_point(buffer,0);
-    return;
+    line_number = 0;
   }
-  
+
+  // TODO: we will modify the number of lines
   if(line_number > buffer->num_lines) {
     line_number = buffer->num_lines-1;
   }
-  
+
   int i = 0;
   int cur_line = 0;
   int line_start_pos = 0;
-  
-  for( i = 0 ; i < buffer->end_pos && cur_line < line_number; i++) {
-    if(buffer->contents[i] == '\n') {
-      cur_line++;
-      line_start_pos = i;
-    }
-  }  
-  buffer_set_point(buffer,line_start_pos);
-}
 
-
-inline void buffer_truncate(struct buffer_region* buffer){
-  buffer->end_pos = 0;
-}
-
-inline int buffer_size(struct buffer_region* buffer) {
-  return buffer->end_pos;
-}
-
-inline int buffer_remaining(struct buffer_region* buffer){
-  return buffer->size - buffer->end_pos;
-}
-
-
-inline bool buffer_endp(struct buffer_region* buf) {
-  return buf->cur_pos >=  buf->end_pos;
-}
-
-inline bool buffer_startp(struct buffer_region* buf) {
-  return buf->cur_pos <= 0;
-}
-
-void buffer_expand(struct buffer_region* buffer, int new_size){
-  if(new_size < buffer->size)
-    return;
-
-  char* new_contents = malloc(sizeof(char));
-
-  // copy over new buffer contents
-  int i = 0;
-  for(i = 0; i < buffer->size; i++)
-    new_contents[i] = buffer->contents[i];
-
-  // free old contents
-  free(buffer->contents);
-  // exchange
-  buffer->contents = new_contents;
-}
-
-
-/**
- * Appends the string to buffer NULL terminators are left out of the
- * buffer and added later. If NULL terminator exists in the string it
- * will prevent futher copying into the buffer.
- */
-void buffer_append(struct buffer_region* buffer, const char* s, int size) {
-  int i = 0;
-
-  if(buffer_remaining(buffer) < size) {
-    // Expand the buffer to accomodate new size.
-    buffer_expand(buffer, buffer->end_pos + size);
+  struct line* cur = buffer->lines;
+  while(cur!= NULL && cur_line < line_number){
+    cur = cur->next;
+    cur_line++;
   }
 
-  while(buffer->end_pos < buffer->size && i < size) {
-    char cur =  s[i++];
-    if (cur == '\0')
-      break;
-    buffer->contents[buffer->end_pos++] = cur;
-  }
+  return cur;
 }
 
-/**
- * Reads num_bytes from the buffer into read_buffer, adding string
- * NULL terminator when its done. Passed in number of bytes don't
- * include the NULL terminator which will be appended to the line.
- */
-int buffer_read(struct buffer_region* buffer, char* read_buffer, int num_bytes) {
-  int read_bytes = 0;
-  while(buffer->cur_pos < buffer->end_pos && read_bytes < num_bytes) {
-    read_buffer[read_bytes++] = buffer->contents[buffer->cur_pos++];
-  }
-  read_buffer[read_bytes] = '\0';
-  return read_bytes;
-}
 
-/**
- * Counts the number of lines in the buffer. This will involve going
- * through the contents of buffer checking for a new-line.
- */
-int buffer_num_lines(struct buffer_region* buffer) {
-  int number = 1;
-  int i = 0;
+int buffer_fill_lines(struct buffer_region* buffer, const char* file_name) {
 
-  for(i = 0 ; i< buffer->end_pos; i++)
-    if(buffer->contents[i] == '\n')
-      number++;
-  return number;
-}
-
-/**
- * Reads a line from the buffer but if there is no line terminor will
- * end up reading the whole buffer.
- */
-int buffer_readline(struct buffer_region* buffer,char* read_buffer, int num_bytes) {
-  int read_bytes = 0;
-
-  if(buffer->cur_pos >= buffer->end_pos) {
-    //    buffer_fill(buffer,buffer->
-  }
-  
-  while(buffer->cur_pos < buffer->end_pos && read_bytes < num_bytes ) {
-    char cur = buffer->contents[buffer->cur_pos++];
-    if(cur  == '\n')
-      break;
-    read_buffer[read_bytes++] = cur;
-  }
-  read_buffer[read_bytes] = '\0';
-  return read_bytes;
-}
-
-/**
- * Fill the rest of the buffer with the contents of the file. Stopping
- * when we reach the end of the file or the buffer.
- */
-int buffer_fill(struct buffer_region* buffer, const char* file_name, long offset) {
   FILE* file =  fopen(file_name,"r");
 
   if(file == NULL) {
     return errno;
   }
-  
-  fseek(file,offset,0);
-  int remaining = buffer_remaining(buffer);
-  size_t read_bytes = fread(&(buffer->contents[buffer->end_pos]),1,remaining,file);
 
-  buffer->end_pos   += (int) read_bytes;
-  buffer->num_lines  = buffer_num_lines(buffer);
+  fseek(file,0,0);
+
+  ssize_t read;
+  size_t len = 0;
+  char* line = NULL;
+
+
+  long line_number = 0;
+  long file_position = 0;
+
+  buffer->lines  = NULL;
+  struct line* prev_line = NULL;
+
+  while((read = getline(&line,&len,file)) != -1) {
+
+    struct line* cur_line = malloc(sizeof(struct line));
+    cur_line->prev = NULL;
+    cur_line->next = NULL;
+    cur_line->modified = false;
+
+
+    if(prev_line!=NULL) {
+      prev_line->next = cur_line;
+      cur_line->prev = prev_line;
+    }
+
+    if(buffer->lines == NULL) { // first line
+      buffer->lines = cur_line;
+      prev_line = cur_line;
+    }
+
+    cur_line->line_number = line_number++;
+    cur_line->file_position = file_position;
+    file_position += (long) read;
+
+    cur_line->data_len = strlen(line)+1;
+    cur_line->data = line;
+
+    prev_line = cur_line;
+    line = NULL;
+  }
 
   fclose(file);
   return 0;
 }
 
-
-
 /**
- * Opens a file given by file path 
+ * Opens a file given by file path
  */
 struct buffer_region* buffer_open_file(char* buffer_name, char* file_path) {
   struct stat file_stat;
-  
+
   if(0 == stat(file_path, &file_stat)) {
     off_t file_size = file_stat.st_size;
     struct buffer_region* buf = buffer_alloc(file_size,buffer_name);
@@ -244,8 +178,11 @@ struct buffer_region* buffer_open_file(char* buffer_name, char* file_path) {
     int len = strlen(file_path);
     buf->filepath= malloc((len+1)*sizeof(char));
     strncpy(buf->filepath,file_path,len);
-    buf->filepath[len]='\0';    
-    buffer_fill(buf,file_path,0);
+    buf->filepath[len]='\0';
+    //    buffer_fill(buf,file_path,0);
+    buffer_fill_lines(buf,file_path);
+
+
     return buf;
   } else{
     // perror
@@ -253,67 +190,81 @@ struct buffer_region* buffer_open_file(char* buffer_name, char* file_path) {
   return NULL;
 }
 
-void test_buffer() {
-
-  printf("test_buffer : ");
-
-  struct buffer_region* buffer = buffer_alloc(1000,"foo");
-  const char* lines[] = {"hello world ",
-                         "how are you ", " hope all is well "};
-
-  int i = 0;
-  int total_line_size = 0;
-
-  for(i = 0; i < ARRAY_SIZE(lines); i++) {
-    int len = strlen(lines[i]);
-    buffer_append(buffer,lines[i],len);
-    total_line_size+= len;
-  }
-
-  for(i = 0; i < ARRAY_SIZE(lines); i++){
-    int len = strlen(lines[i]);
-    char* read_buffer = (char*) malloc(len * sizeof(char));
-    buffer_read(buffer,read_buffer,len);
-    assert(0 == strcmp(read_buffer,lines[i]));
-    free(read_buffer);
-  }
-
-  // return to begining
-  buffer_rewind(buffer);
-
-  char cur_line[1024];
-  buffer_readline(buffer,cur_line,1024);
-
-  printf("pass\n");
-}
-
-void test_buffer_file() {
-  printf("test_buffer_file : ");
-  struct buffer_region* buffer = buffer_alloc(4096,"foo");
-  buffer_fill(buffer,"/proc/vmstat",0);
-  int num_lines  = buffer_num_lines(buffer);
-  printf("num_lines:%d\n",num_lines);
-
-  int i = 0;
-  for(i = 0; i < num_lines; i++) {
-    char cur_line[1024];
-    buffer_readline(buffer,cur_line,1024);
-    printw("%s\n",cur_line);
-  }
-  printf("pass\n");
-}
-
 struct buffer_display{
   int height;
   int width;
-
-  int start_line;
+  struct line* start_line_ptr;
+  struct line* current_line_ptr;
   int cursor_line;
   int cursor_column;
   WINDOW* mode_window;
   WINDOW* buffer_window;
 };
 
+inline void display_line_up(struct buffer_display * display) {
+  if(display->current_line_ptr == NULL || display->current_line_ptr->prev == NULL){
+    return;
+  }
+  display->current_line_ptr = display->current_line_ptr->prev;
+}
+
+inline void display_line_down(struct buffer_display * display) {
+  if(display->current_line_ptr == NULL || display->current_line_ptr->next == NULL){
+    return;
+  }
+  display->current_line_ptr = display->current_line_ptr->next;
+}
+
+/**
+ * Starting with current line, return pointer to starting line of next
+ * page, where page will be number of lines to keep on the page.
+ */
+inline void display_pg_down(struct buffer_display * display)
+{
+  // Using display height as page size
+  long pg_size = display->height;
+  int cur_line = 0;
+
+  // assume we start at current current page.
+  struct line* pg_start = display->start_line_ptr;
+  struct line* cur = display->start_line_ptr;
+
+  while(cur!= NULL && cur_line < pg_size){
+    cur = cur->next;
+    cur_line++;
+  }
+
+  if(cur!=NULL)
+    pg_start = cur;
+
+  display->start_line_ptr = pg_start;
+}
+
+
+/**
+ * Starting with current line, return pointer to starting line of next
+ * page, where page will be number of lines to keep on the page.
+ */
+inline void display_pg_up(struct buffer_display * display)
+{
+  // Using display height as page size
+  long pg_size = display->height;
+  int cur_line = 0;
+
+  // assume we start at current current page.
+  struct line* pg_start = display->start_line_ptr;
+  struct line* cur = display->start_line_ptr;
+
+  while(cur!= NULL && cur_line < pg_size){
+    cur = cur->prev;
+    cur_line++;
+  }
+
+  if(cur!=NULL)
+    pg_start = cur;
+
+  display->start_line_ptr = pg_start;
+}
 
 void buffer_show(struct buffer_display* display) {
   if(display->buffer_window == NULL) {
@@ -322,24 +273,23 @@ void buffer_show(struct buffer_display* display) {
   }
 
   struct buffer_region* buf = all_buffers->cur;
-  
+
   wmove(display->buffer_window,0,0);
   wrefresh(display->buffer_window);
-  
+
   int i = 0;
-  buffer_goto_line(buf,display->start_line);
-    
-  for(i = 0 ; !buffer_endp(buf) && i < display->height; i++) { 
-    char cur_line[1024];
-    buffer_readline(buf,cur_line,1024);
-    wprintw(display->buffer_window,"%s\n",cur_line);
+  struct line* start_line_ptr = display->start_line_ptr;
+  while(start_line_ptr!=NULL && i < display->height) {
+    wprintw(display->buffer_window,"%s",start_line_ptr->data);
+    start_line_ptr = start_line_ptr->next;
+    i++;
   }
 
   // Fill rest of screen with blanks
   for(; i <display->height; i++) {
     wprintw(display->buffer_window,"\n");
   }
-  
+
 }
 
 
@@ -353,15 +303,14 @@ void mode_line_show(struct buffer_display* display) {
   wmove(display->mode_window,0,0);
   struct buffer_region* cur = all_buffers->cur;
   wprintw(display->mode_window,
-          "-[name:%s, pos:%d, start:%d, cursor:%d num_lines:%d ][%d x %d]",
+          "-[name:%s, pos:%d, start:xx, cursor:%d num_lines:%d ][%d x %d]",
           cur->buf_name,
           cur->cur_pos,
-          display->start_line,
           display->cursor_line,
           cur->num_lines,
           display->height,
           display->width);
-  
+
   int i  = 0;
   for(i  = 0; i < 50; i++)
     wprintw(display->mode_window,"%c", '-');
@@ -373,19 +322,20 @@ void display_loop() {
   display->height = 32;
   display->width = 1024;
 
-  display->start_line = 0;
   display->cursor_column = 0;
   display->cursor_line = 0;
   display->mode_window = NULL;
   display->buffer_window = NULL;
-  
+  display->start_line_ptr = all_buffers->cur->lines;
+  display->current_line_ptr = display->start_line_ptr;
+
   char cur ;
   initscr();
   raw();
   refresh();
   bool redisplay = false;
   bool quit = false;
-  
+
   while(!quit) {
     noecho();
     buffer_show(display);
@@ -405,41 +355,44 @@ void display_loop() {
       } else if (cur == '<') {
         display->cursor_line = 0;
         redisplay = true;
+        /*
         if(display->start_line-display->height < 0 ) {
           display->start_line = 0;
           continue;
         }
-        display->start_line -= display->height;
+        //display->start_line -= display->height;
+        */
+        display_pg_up(display);
       } else if (cur == '>'){
         display->cursor_line = 0;
         redisplay = true;
-        if(display->start_line+display->height >= all_buffers->cur->num_lines) {
-          continue;
-        }
-        display->start_line += display->height;
+        display_pg_down(display);
       } else if (cur == 'j') {
-        
-        if(display->cursor_line + display->start_line >= all_buffers->cur->num_lines)  {
+        if(display->cursor_line+1 >= display->height)  {
+          display->cursor_line =0;
           redisplay = true;
-          continue;
+          display_pg_down(display);
+        } else {
+          display_line_down(display);
+          move(++display->cursor_line,display->cursor_column);
         }
-        move(++display->cursor_line,display->cursor_column);
-        if(display->cursor_line >= display->height){
-          display->start_line += display->height;
-          display->cursor_line = 0;
-          redisplay = true;
-        }        
       } else if (cur == 'k') {
-        move(--(display->cursor_line),display->cursor_column);
-        if(display->cursor_line <= 0){
-          if(display->start_line > 0)
-            display->start_line --;
-          display->cursor_line = 0;
+        if(display->cursor_line -1 <= 0){
+          display_pg_up(display);
+          display->cursor_line = display->height;
           redisplay = true;
+        } else {
+                display_line_up(display);
+                move(--(display->cursor_line),display->cursor_column);
         }
       } else if (cur == 'l') {
-        if(display->cursor_column < display->width)
-          move(display->cursor_line,++(display->cursor_column));
+         if(display->cursor_column < display->width &&
+            display->cursor_column < display->current_line_ptr->data_len) {
+           move(display->cursor_line,(display->cursor_column)++);
+         } else {
+           display->cursor_column = display->current_line_ptr->data_len;
+           move(display->cursor_line,display->cursor_column);
+         }
       } else if (cur == 'h') {
         if(display->cursor_column > 0) {
           move(display->cursor_line,--(display->cursor_column));
@@ -455,15 +408,14 @@ void display_loop() {
 
 
 int main(int argc, char* argv[]){
-  all_buffers = buffer_list_create();  
+  all_buffers = buffer_list_create();
   if(argc > 1)
     all_buffers->cur = buffer_open_file("x.c", argv[1]);
-  else 
+  else
     all_buffers->cur = buffer_open_file("x.c", "/home/aakarsh/src/c/x/x.c");
-  
+
   if(all_buffers->cur){
     display_loop();
   }
-  
   return 0;
 }
