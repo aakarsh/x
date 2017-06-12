@@ -7,16 +7,28 @@
 #include <ctype.h>
 #include <errno.h>
 
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
 #define ARRAY_SIZE(x) ((sizeof x) / (sizeof *x))
 static  int DISPLAY_SIZE = 512;
-static  int DEFAULT_BUFFER_SIZE = 4096;
+static  int DEFAULT_BUFFER_SIZE = 8192;
 
 struct buf {
   int size;
   int end_pos;
   int cur_pos;
-  char* contents;
+  
+  int num_lines;
+  
+  /* If buffer is backed by a file */
+  char* filepath;
+  long fnext_read;
+  off_t fsize;
+
   char* buf_name;
+  char* contents;
 };
 
 struct buffer_list {
@@ -58,6 +70,25 @@ inline void buffer_set_point(struct buf* buffer , int point){
   if(point < buffer->end_pos)
     buffer->cur_pos = point;
 }
+
+inline void buffer_goto_line(struct buf* buffer, int line_number){
+  if(line_number > buffer->num_lines)
+    line_number = buffer->num_lines;
+  
+  int i = 0;
+  int cur_line = 0;
+  int line_start_pos = 0;
+  
+  for( i = 0 ; i < buffer->end_pos && cur_line < line_number; i++) {
+    if(buffer->contents[i] == '\n') {
+      cur_line++;
+      line_start_pos = i;
+    }
+  }
+  
+  buffer_set_point(buffer,line_start_pos);
+}
+  
 
 inline void buffer_truncate(struct buf* buffer){
   buffer->end_pos = 0;
@@ -144,6 +175,11 @@ int buffer_num_lines(struct buf* buffer) {
  */
 int buffer_readline(struct buf* buffer,char* read_buffer, int num_bytes) {
   int read_bytes = 0;
+
+  if(buffer->cur_pos >= buffer->end_pos) {
+    //    buffer_fill(buffer,buffer->
+  }
+  
   while(buffer->cur_pos < buffer->end_pos && read_bytes < num_bytes ) {
     char cur = buffer->contents[buffer->cur_pos++];
     if(cur  == '\n')
@@ -158,22 +194,57 @@ int buffer_readline(struct buf* buffer,char* read_buffer, int num_bytes) {
  * Fill the rest of the buffer with the contents of the file. Stopping
  * when we reach the end of the file or the buffer.
  */
-int buffer_fill(struct buf* buffer, const char* file_name) {
+int buffer_fill(struct buf* buffer, const char* file_name, long offset) {
   FILE* file =  fopen(file_name,"r");
 
   if(file == NULL) {
     return errno;
   }
-
+  fseek(file,offset,offset);
   int remaining = buffer_remaining(buffer);
-  size_t read_bytes = fread(&(buffer->contents[buffer->end_pos]),
-                            1,remaining,file);
-  buffer->end_pos+=(int)read_bytes;
+  size_t read_bytes = fread(&(buffer->contents[buffer->end_pos]),1,remaining,file);
+
+  buffer->end_pos   += (int) read_bytes;
+  buffer->fnext_read = (long) offset+read_bytes;
+  buffer->num_lines  = buffer_num_lines(buffer);
 
   fclose(file);
   return 0;
 }
 
+/**
+ * Replace buffer contents with next page form the file.
+ */
+int buffer_scroll_down(struct buf* buffer){
+  if(buffer->fnext_read >=  buffer->fsize)
+    return -1;
+
+  buffer_fill(buffer,buffer->filepath,buffer->fnext_read);
+
+  return 0;
+}
+
+
+/**
+ * Opens a file given by file path 
+ */
+struct buf* buffer_open_file(char* buffer_name, char* file_path) {
+  struct buf* buf = buffer_alloc(DEFAULT_BUFFER_SIZE,buffer_name);
+  struct stat file_stat;
+
+  if(0 == stat(file_path, &file_stat)) {
+    buf->fsize = file_stat.st_size;
+    int len = strlen(file_path);
+    buf->filepath= malloc((len+1)*sizeof(char));
+    strncpy(buf->filepath,file_path,len);
+    buf->filepath[len]='\0';    
+    buffer_fill(buf,file_path,0);
+    return buf;
+  } else{
+    // perror
+  }
+  return NULL;
+}
 
 void test_buffer() {
 
@@ -212,7 +283,7 @@ void test_buffer() {
 void test_buffer_file() {
   printf("test_buffer_file : ");
   struct buf* buffer = buffer_alloc(4096,"foo");
-  buffer_fill(buffer,"/proc/vmstat");
+  buffer_fill(buffer,"/proc/vmstat",0);
   int num_lines  = buffer_num_lines(buffer);
   printf("num_lines:%d\n",num_lines);
 
@@ -235,8 +306,9 @@ struct buffer_display{
 };
 
 void buffer_show(struct buffer_display* display) {
-  if(display->buffer_window == NULL)
+  if(display->buffer_window == NULL) {
     display->buffer_window = newwin(display->height,display->width,0,0);
+  }
 
   struct buf* buf = all_buffers->cur;
   buffer_set_point(buf,display->start_pos);
@@ -246,16 +318,19 @@ void buffer_show(struct buffer_display* display) {
   wrefresh(display->buffer_window);
   
   int i = 0;
-
-  for(i =0 ; i < nlines && i < display->height; i++) {
+  buffer_goto_line(buf,display->start_line);
+  
+  for(i = 0 ;  i < display->height; i++) {
+    
     char cur_line[1024];
     buffer_readline(buf,cur_line,1024);
-
-    if (i > display->start_line) {
-      wprintw(display->buffer_window,"%s\n",cur_line);
-    }
+    wprintw(display->buffer_window,"%s\n",cur_line);
+    
+    // Reached end of buffer but file has more contents
+    if(buf->cur_pos >=  buf->end_pos && buf->fnext_read < (long) buf->fsize) {
+      buffer_scroll_down(buf);
+    }    
   }
-
 }
 
 /**
@@ -267,17 +342,22 @@ void mode_line_show(struct buffer_display* display) {
 
   wmove(display->mode_window,0,0);
   struct buf* cur = all_buffers->cur;
-  wprintw(display->mode_window,"[%s,%d]",cur->buf_name,cur->cur_pos);
+  wprintw(display->mode_window,"-[%s, %d, %d]",cur->buf_name,cur->cur_pos,display->start_line);
+  int i  = 0;
+  for(i  = 0; i < 50; i++)
+    wprintw(display->mode_window,"%c", '-');
   wrefresh(display->mode_window);
 }
 
 void display_loop() {
+  
   struct buffer_display* display = malloc(sizeof(struct buffer_display));
   display->height = 32;
   display->width = 1024;
   display->start_pos =0;
   display->mode_window = NULL;
   display->buffer_window = NULL;
+  
   char cur ;
   initscr();
   raw();
@@ -296,8 +376,16 @@ void display_loop() {
         break;
     } else if (cur == 'j') {
       display->start_line++;
+      /*
+      if(display->start_line > display->height){
+        display->start_line = display->height; 
+      }
+      */
     } else if (cur == 'k') {
       display->start_line--;
+      if(display->start_line < 0){
+        display->start_line = 0;
+      }
     }
   }
 
@@ -307,9 +395,11 @@ void display_loop() {
 
 int main(int argc, char* argv[]){
   all_buffers = buffer_list_create();
-  all_buffers->cur = buffer_alloc(DEFAULT_BUFFER_SIZE,"x.c");
+  all_buffers->cur = buffer_open_file("x.c", "/home/aakarsh/src/c/x/x.c");
   
-  buffer_fill(all_buffers->cur,"/home/aakarsh/src/c/x/x.c");
-  display_loop();
+  if(all_buffers->cur){
+    display_loop();
+  }
+  
   return 0;
 }
