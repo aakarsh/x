@@ -16,7 +16,6 @@ static  int DISPLAY_SIZE = 512;
 static  int DEFAULT_BUFFER_SIZE = 8192;
 
 struct buffer_region {
-
   off_t size;
   int end_pos;
   int cur_pos;
@@ -25,12 +24,7 @@ struct buffer_region {
   
   /* If buffer is backed by a file */
   char* filepath;
-  
-  /**
-   * Indices of the part of the file which this region represents.
-   */
-  long freg_begin;
-  long freg_end;
+
 
   off_t fsize;
 
@@ -229,8 +223,6 @@ int buffer_fill(struct buffer_region* buffer, const char* file_name, long offset
   size_t read_bytes = fread(&(buffer->contents[buffer->end_pos]),1,remaining,file);
 
   buffer->end_pos   += (int) read_bytes;
-  buffer->freg_begin = (long) offset;
-  buffer->freg_end = (long) offset+read_bytes;
   buffer->num_lines  = buffer_num_lines(buffer);
 
   fclose(file);
@@ -361,11 +353,12 @@ void mode_line_show(struct buffer_display* display) {
   wmove(display->mode_window,0,0);
   struct buffer_region* cur = all_buffers->cur;
   wprintw(display->mode_window,
-          "-[name:%s, pos:%d, start:%d, cursor:%d ][%d x %d]",
+          "-[name:%s, pos:%d, start:%d, cursor:%d num_lines:%d ][%d x %d]",
           cur->buf_name,
           cur->cur_pos,
           display->start_line,
           display->cursor_line,
+          cur->num_lines,
           display->height,
           display->width);
   
@@ -425,6 +418,11 @@ void display_loop() {
         }
         display->start_line += display->height;
       } else if (cur == 'j') {
+        
+        if(display->cursor_line + display->start_line >= all_buffers->cur->num_lines)  {
+          redisplay = true;
+          continue;
+        }
         move(++display->cursor_line,display->cursor_column);
         if(display->cursor_line >= display->height){
           display->start_line += display->height;
@@ -443,8 +441,12 @@ void display_loop() {
         if(display->cursor_column < display->width)
           move(display->cursor_line,++(display->cursor_column));
       } else if (cur == 'h') {
-        if(display->cursor_column > 0)
+        if(display->cursor_column > 0) {
           move(display->cursor_line,--(display->cursor_column));
+        } else{
+          display->cursor_column = 0;
+          move(display->cursor_line,0);
+        }
       }
     }
   }
