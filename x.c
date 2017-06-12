@@ -170,6 +170,7 @@ struct buffer_region* buffer_open_file(char* buffer_name, char* file_path) {
 struct buffer_display{
   int height;
   int width;
+  struct buffer_region* current_buffer;
   struct line* start_line_ptr;
   struct line* current_line_ptr;
   int cursor_line;
@@ -177,6 +178,12 @@ struct buffer_display{
   WINDOW* mode_window;
   WINDOW* buffer_window;
 };
+
+void display_set_buffer(struct buffer_display* display, struct buffer_region* buffer) {  
+  display->current_buffer = buffer;
+  display->start_line_ptr = buffer->lines;
+  display->current_line_ptr = display->start_line_ptr;
+}
 
 inline void display_line_up(struct buffer_display * display) {
   if(display->current_line_ptr == NULL || display->current_line_ptr->prev == NULL){
@@ -230,14 +237,13 @@ void display_pg_up(struct buffer_display * display)
   // assume we start at current current page.
   struct line* pg_start = display->start_line_ptr;
   struct line* cur = display->start_line_ptr;
-
+   
   while(cur!= NULL && cur_line < pg_size){
     cur = cur->prev;
     cur_line++;
   }
 
-  if(cur!=NULL)
-    pg_start = cur;
+  if(cur!=NULL)  pg_start = cur;
 
   display->start_line_ptr = pg_start;
 }
@@ -248,7 +254,7 @@ void buffer_show(struct buffer_display* display) {
                                     display->width,0,0);
   }
 
-  struct buffer_region* buf = all_buffers->cur;
+  struct buffer_region* buf = display->current_buffer;
 
   wmove(display->buffer_window,0,0);
   wrefresh(display->buffer_window);
@@ -276,7 +282,7 @@ void mode_line_show(struct buffer_display* display) {
     display->mode_window = newwin(display->height+1,display->width,display->height,0);
 
   wmove(display->mode_window,0,0);
-  struct buffer_region* cur = all_buffers->cur;
+  struct buffer_region* cur = display->current_buffer;
   wprintw(display->mode_window,
           "-[name:%s, cursor:%d num_lines:%d ][%d x %d]",
           cur->buf_name,
@@ -291,6 +297,8 @@ void mode_line_show(struct buffer_display* display) {
   wrefresh(display->mode_window);
 }
 
+
+  
 void display_loop() {
   struct buffer_display* display = malloc(sizeof(struct buffer_display));
   display->height = 32;
@@ -300,8 +308,9 @@ void display_loop() {
   display->cursor_line = 0;
   display->mode_window = NULL;
   display->buffer_window = NULL;
-  display->start_line_ptr = all_buffers->cur->lines;
-  display->current_line_ptr = display->start_line_ptr;
+
+  display_set_buffer(display,all_buffers->cur);
+  
 
   char cur ;
   initscr();
@@ -368,6 +377,9 @@ void display_loop() {
           display->cursor_column = 0;
           move(display->cursor_line,0);
         }
+      } else if (cur == 'x') {
+        //   buffer_delete_char(displ,display->cursor_column, 
+        redisplay = true;
       }
     }
   }
