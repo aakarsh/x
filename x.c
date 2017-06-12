@@ -325,7 +325,8 @@ struct buffer_display{
 
 void buffer_show(struct buffer_display* display) {
   if(display->buffer_window == NULL) {
-    display->buffer_window = newwin(display->height,display->width,0,0);
+    display->buffer_window = newwin(display->height,
+                                    display->width,0,0);
   }
 
   struct buffer_region* buf = all_buffers->cur;
@@ -336,11 +337,17 @@ void buffer_show(struct buffer_display* display) {
   int i = 0;
   buffer_goto_line(buf,display->start_line);
     
-  for(i = 0 ; !buffer_endp(buf) && i < display->height; i++) {    
+  for(i = 0 ; !buffer_endp(buf) && i < display->height; i++) { 
     char cur_line[1024];
     buffer_readline(buf,cur_line,1024);
     wprintw(display->buffer_window,"%s\n",cur_line);
   }
+
+  // Fill rest of screen with blanks
+  for(; i <display->height; i++) {
+    wprintw(display->buffer_window,"\n");
+  }
+  
 }
 
 
@@ -349,11 +356,19 @@ void buffer_show(struct buffer_display* display) {
  */
 void mode_line_show(struct buffer_display* display) {
   if(display->mode_window == NULL)
-    display->mode_window = newwin(display->height+10,display->width,display->height,0);
+    display->mode_window = newwin(display->height+1,display->width,display->height,0);
 
   wmove(display->mode_window,0,0);
   struct buffer_region* cur = all_buffers->cur;
-  wprintw(display->mode_window,"-[%s, %d, %d]",cur->buf_name,cur->cur_pos,display->start_line);
+  wprintw(display->mode_window,
+          "-[name:%s, pos:%d, start:%d, cursor:%d ][%d x %d]",
+          cur->buf_name,
+          cur->cur_pos,
+          display->start_line,
+          display->cursor_line,
+          display->height,
+          display->width);
+  
   int i  = 0;
   for(i  = 0; i < 50; i++)
     wprintw(display->mode_window,"%c", '-');
@@ -361,7 +376,6 @@ void mode_line_show(struct buffer_display* display) {
 }
 
 void display_loop() {
-  
   struct buffer_display* display = malloc(sizeof(struct buffer_display));
   display->height = 32;
   display->width = 1024;
@@ -383,27 +397,43 @@ void display_loop() {
     noecho();
     buffer_show(display);
 
-
     wrefresh(display->mode_window);
     wrefresh(display->buffer_window);
     redisplay = false;
+
     move(display->cursor_line,display->cursor_column);
+
     while(!redisplay) {
       mode_line_show(display);
       cur = getch();
       if (cur == 3 || cur == 'q') { // quit
         quit = true;
         break;
+      } else if (cur == '<') {
+        display->cursor_line = 0;
+        redisplay = true;
+        if(display->start_line-display->height < 0 ) {
+          display->start_line = 0;
+          continue;
+        }
+        display->start_line -= display->height;
+      } else if (cur == '>'){
+        display->cursor_line = 0;
+        redisplay = true;
+        if(display->start_line+display->height >= all_buffers->cur->num_lines) {
+          continue;
+        }
+        display->start_line += display->height;
       } else if (cur == 'j') {
         move(++display->cursor_line,display->cursor_column);
-        if(display->cursor_line > display->height){
-          display->start_line+= display->height;
+        if(display->cursor_line >= display->height){
+          display->start_line += display->height;
           display->cursor_line = 0;
           redisplay = true;
         }        
       } else if (cur == 'k') {
         move(--(display->cursor_line),display->cursor_column);
-        if(display->cursor_line < 0){
+        if(display->cursor_line <= 0){
           if(display->start_line > 0)
             display->start_line --;
           display->cursor_line = 0;
