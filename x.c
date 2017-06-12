@@ -30,8 +30,6 @@ struct line {
 
 struct buffer_region {
   off_t size;
-  int end_pos;
-  int cur_pos;
   int num_lines;
   char* filepath;
   off_t fsize;
@@ -56,43 +54,25 @@ struct buffer_list* buffer_list_create() {
   return list;
 }
 
-struct buffer_region* buffer_alloc(off_t size,char* buffer_name) {
+struct buffer_region* buffer_alloc(char* buffer_name) {
 
   struct buffer_region* buffer = malloc(sizeof(struct buffer_region));
-
-  buffer->size = size;
-  buffer->end_pos = 0;
-  buffer->cur_pos  = 0;
-  
   int len = strlen(buffer_name);
   buffer->buf_name = (char*) malloc((len+1)*sizeof(char));
   strncpy(buffer->buf_name,buffer_name,len);
-
-
   return buffer;
 }
-
-inline void buffer_rewind(struct buffer_region* buffer){
-  buffer->cur_pos = 0;
-}
-
-inline void buffer_set_point(struct buffer_region* buffer , int point){
-  if(point < buffer->end_pos)
-    buffer->cur_pos = point;
-}
-
 
 /**
  * Return a pointer to a line rather than using indices into content
  * field.
  */
-inline struct line* buffer_find_line(struct buffer_region* buffer, int line_number) {
+struct line* buffer_find_line(struct buffer_region* buffer, int line_number) {
 
   if(line_number <= 0) { // go to begining of buffer
     line_number = 0;
   }
 
-  // TODO: we will modify the number of lines
   if(line_number > buffer->num_lines) {
     line_number = buffer->num_lines-1;
   }
@@ -110,21 +90,19 @@ inline struct line* buffer_find_line(struct buffer_region* buffer, int line_numb
   return cur;
 }
 
-
+/**
+ * Read file contents into lines.
+ */
 int buffer_fill_lines(struct buffer_region* buffer, const char* file_name) {
-
   FILE* file =  fopen(file_name,"r");
-
   if(file == NULL) {
     return errno;
   }
-
   fseek(file,0,0);
 
   ssize_t read;
   size_t len = 0;
   char* line = NULL;
-
 
   long line_number = 0;
   long file_position = 0;
@@ -160,7 +138,7 @@ int buffer_fill_lines(struct buffer_region* buffer, const char* file_name) {
     prev_line = cur_line;
     line = NULL;
   }
-
+  buffer->num_lines = line_number;
   fclose(file);
   return 0;
 }
@@ -173,15 +151,14 @@ struct buffer_region* buffer_open_file(char* buffer_name, char* file_path) {
 
   if(0 == stat(file_path, &file_stat)) {
     off_t file_size = file_stat.st_size;
-    struct buffer_region* buf = buffer_alloc(file_size,buffer_name);
+    struct buffer_region* buf = buffer_alloc(buffer_name);
     buf->fsize = file_size;
+    buf->size = (long)file_size;
     int len = strlen(file_path);
     buf->filepath= malloc((len+1)*sizeof(char));
     strncpy(buf->filepath,file_path,len);
     buf->filepath[len]='\0';
-    //    buffer_fill(buf,file_path,0);
     buffer_fill_lines(buf,file_path);
-
 
     return buf;
   } else{
@@ -240,7 +217,6 @@ inline void display_pg_down(struct buffer_display * display)
   display->start_line_ptr = pg_start;
 }
 
-
 /**
  * Starting with current line, return pointer to starting line of next
  * page, where page will be number of lines to keep on the page.
@@ -292,7 +268,6 @@ void buffer_show(struct buffer_display* display) {
 
 }
 
-
 /**
  * Show the mode-line at the bottom of the display.
  */
@@ -303,9 +278,8 @@ void mode_line_show(struct buffer_display* display) {
   wmove(display->mode_window,0,0);
   struct buffer_region* cur = all_buffers->cur;
   wprintw(display->mode_window,
-          "-[name:%s, pos:%d, start:xx, cursor:%d num_lines:%d ][%d x %d]",
+          "-[name:%s, cursor:%d num_lines:%d ][%d x %d]",
           cur->buf_name,
-          cur->cur_pos,
           display->cursor_line,
           cur->num_lines,
           display->height,
@@ -338,6 +312,7 @@ void display_loop() {
 
   while(!quit) {
     noecho();
+
     buffer_show(display);
 
     wrefresh(display->mode_window);
@@ -405,7 +380,6 @@ void display_loop() {
   }
   endwin();
 }
-
 
 int main(int argc, char* argv[]){
   all_buffers = buffer_list_create();
