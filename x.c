@@ -301,6 +301,7 @@ struct buffer_display{
   int width;
   int start_pos;
   int start_line;
+  int cursor_column;
   WINDOW* mode_window;
   WINDOW* buffer_window;
 };
@@ -355,6 +356,7 @@ void display_loop() {
   display->height = 32;
   display->width = 1024;
   display->start_pos =0;
+  display->cursor_column = 0;
   display->mode_window = NULL;
   display->buffer_window = NULL;
   
@@ -362,29 +364,38 @@ void display_loop() {
   initscr();
   raw();
   refresh();
-
-  while(1) {
+  bool redisplay = false;
+  bool quit = false;
+  while(!quit) {
     noecho();
     buffer_show(display);
     mode_line_show(display);
 
     wrefresh(display->mode_window);
     wrefresh(display->buffer_window);
-
-    cur = getch();
-    if (cur == 3 || cur == 'q') { // quit
+    redisplay = false;
+    move(display->start_line,display->cursor_column);
+    while(!redisplay) {
+      cur = getch();
+      if (cur == 3 || cur == 'q') { // quit
+        quit = true;
         break;
-    } else if (cur == 'j') {
-      display->start_line++;
-      /*
-      if(display->start_line > display->height){
-        display->start_line = display->height; 
-      }
-      */
-    } else if (cur == 'k') {
-      display->start_line--;
-      if(display->start_line < 0){
-        display->start_line = 0;
+      } else if (cur == 'j') {
+        move(++display->start_line,display->cursor_column);
+        if(display->start_line > display->height){
+          redisplay = true;
+        }        
+      } else if (cur == 'k') {
+        move(--display->start_line,display->cursor_column);
+        if(display->start_line < 0){
+          display->start_line = 0;
+        }
+      } else if (cur == 'l') {
+        if(display->cursor_column < display->width)
+          move(display->start_line,++(display->cursor_column));
+      } else if (cur == 'h') {
+        if(display->cursor_column > 0)
+          move(display->start_line,--(display->cursor_column));
       }
     }
   }
