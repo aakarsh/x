@@ -196,7 +196,7 @@ inline void display_line_down(struct buffer_display * display) {
  * Starting with current line, return pointer to starting line of next
  * page, where page will be number of lines to keep on the page.
  */
-inline void display_pg_down(struct buffer_display * display)
+void display_pg_down(struct buffer_display * display)
 {
   // Using display height as page size
   long pg_size = display->height;
@@ -221,7 +221,7 @@ inline void display_pg_down(struct buffer_display * display)
  * Starting with current line, return pointer to starting line of next
  * page, where page will be number of lines to keep on the page.
  */
-inline void display_pg_up(struct buffer_display * display)
+void display_pg_up(struct buffer_display * display)
 {
   // Using display height as page size
   long pg_size = display->height;
@@ -330,13 +330,6 @@ void display_loop() {
       } else if (cur == '<') {
         display->cursor_line = 0;
         redisplay = true;
-        /*
-        if(display->start_line-display->height < 0 ) {
-          display->start_line = 0;
-          continue;
-        }
-        //display->start_line -= display->height;
-        */
         display_pg_up(display);
       } else if (cur == '>'){
         display->cursor_line = 0;
