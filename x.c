@@ -399,18 +399,16 @@ void display_loop() {
       }
     }
   }
-
   endwin();
 }
 
 
 int main(int argc, char* argv[]){
-  all_buffers = buffer_list_create();
-  
+  all_buffers = buffer_list_create();  
   if(argc > 1)
     all_buffers->cur = buffer_open_file("x.c", argv[1]);
   else 
-    all_buffers->cur = buffer_open_file("x.c", "x.c");
+    all_buffers->cur = buffer_open_file("x.c", "/home/aakarsh/src/c/x/x.c");
   
   if(all_buffers->cur){
     display_loop();
