@@ -20,8 +20,6 @@ struct line {
 
   char * data;
   int data_len;
-
-  bool modified;
   
   struct line* next;
   struct line* prev;
@@ -33,7 +31,8 @@ struct buffer_region {
   char* filepath;
   off_t fsize;
   char* buf_name;
-
+  bool modified;
+  
   struct line* current_line;
   struct line* lines;
 };
@@ -107,6 +106,8 @@ int buffer_fill_lines(struct buffer_region* buffer, const char* file_name) {
   long file_position = 0;
 
   buffer->lines  = NULL;
+  buffer->modified = false;
+  
   struct line* prev_line = NULL;
 
   while((read = getline(&line,&len,file)) != -1) {
@@ -114,7 +115,7 @@ int buffer_fill_lines(struct buffer_region* buffer, const char* file_name) {
     struct line* cur_line = malloc(sizeof(struct line));
     cur_line->prev = NULL;
     cur_line->next = NULL;
-    cur_line->modified = false;
+
 
 
     if(prev_line!=NULL) {
@@ -142,6 +143,36 @@ int buffer_fill_lines(struct buffer_region* buffer, const char* file_name) {
   return 0;
 }
 
+/**
+ * Keeping this fairly simple, just iterating through all the lines
+ * and writing it to the file. The fill is trunkcated before writing
+ * to it. Not very efficient for large files.
+ */
+void buffer_save(struct buffer_region* buffer) {
+  
+  if(NULL == buffer->filepath) {
+    return;
+  }
+  
+  FILE* savefile = fopen(buffer->filepath,"w+");
+  
+  if(NULL == savefile) {
+    return;
+  }
+  
+  struct line* line  = buffer->lines;  
+  while( NULL != line ) {
+    // recompute to be sure of line length
+    long line_len  = strlen(line->data);
+    if(line_len > 0) {
+      fwrite(line->data,line_len,sizeof(char),savefile);
+    }
+    line = line->next;
+  }  
+  fclose(savefile);
+  buffer->modified = false;
+  
+}
 /**
  * Opens a file given by file path
  */
@@ -171,19 +202,20 @@ struct buffer_region* buffer_open_file(char* buffer_name, char* file_path) {
  * Insert the character at postion speicfied in the current line
  */
 void buffer_insert_char(struct buffer_region* buffer,char insert_char, int insert_position) {
-  
+
   struct line* current_line = buffer->current_line;
   if(current_line == NULL || current_line->data == NULL ){
     return;
   }
-  
+
   long len_line  = strlen(current_line->data);
+
   if(insert_position  >= len_line-1 || insert_position < 0) {
     return;
   }
-  
+
   char * modified_line = realloc(buffer->current_line->data,(size_t) (len_line+2));
-  
+
   if(modified_line == NULL) // data is left unmodified by realloc
     return;
 
@@ -193,15 +225,27 @@ void buffer_insert_char(struct buffer_region* buffer,char insert_char, int inser
   int i = last_postion;
   for(;i > insert_position ; i--)
     modified_line[i]=modified_line[i-1];
-  
+
   modified_line[insert_position] = insert_char;
-  buffer->current_line->modified = true;
-  buffer->current_line->data = modified_line;  
+  buffer->modified = true;
+  buffer->current_line->data = modified_line;
   buffer->current_line->data_len++;
-  
+
 }
 
+void buffer_delete_line(struct buffer_region* buffer, struct line * line) {
 
+  if(NULL == line) {
+    return;
+  }
+
+  struct line* line_prev = line->prev;
+  
+  if( NULL == line_prev ) {
+
+  }
+
+}
 
 /**
  * Delete the character at postion speicfied in the current line. Will
@@ -212,7 +256,7 @@ void buffer_delete_char(struct buffer_region* buffer,  int delete_position) {
   if(current_line == NULL || current_line->data == NULL ){
     return;
   }
-  
+
   long len_line  = strlen(current_line->data);
   if(delete_position  >= len_line-1 || delete_position < 0) {
     return;
@@ -225,15 +269,14 @@ void buffer_delete_char(struct buffer_region* buffer,  int delete_position) {
   }
   line[len_line-1]='\0';
   char * modified_line = realloc(buffer->current_line->data,(size_t) len_line);
-  
+
   if(modified_line == NULL) // data is left unmodified by realloc
     return;
-  
-  buffer->current_line->modified = true;
-  buffer->current_line->data = modified_line;  
+
+  buffer->modified = true;
+  buffer->current_line->data = modified_line;
   buffer->current_line->data_len--;
 }
-
 
 struct buffer_display{
   int height;
@@ -250,7 +293,7 @@ struct buffer_display{
   WINDOW* buffer_window;
 };
 
-void display_set_buffer(struct buffer_display* display, struct buffer_region* buffer) {  
+void display_set_buffer(struct buffer_display* display, struct buffer_region* buffer) {
   display->current_buffer = buffer;
   display->current_buffer->current_line = display->start_line_ptr;
   display->start_line_ptr = buffer->lines;
@@ -260,13 +303,13 @@ void display_set_buffer(struct buffer_display* display, struct buffer_region* bu
 inline void display_line_up(struct buffer_display * display) {
   if(display->current_buffer == NULL)
     return;
-  
+
   struct buffer_region* current_buffer = display->current_buffer;
-  
+
   if(current_buffer->current_line == NULL || current_buffer->current_line->prev == NULL){
     return;
   }
-  
+
   current_buffer->current_line = current_buffer->current_line->prev;
 }
 
@@ -274,9 +317,9 @@ inline void display_line_up(struct buffer_display * display) {
 inline void display_line_down(struct buffer_display * display) {
   if(display->current_buffer == NULL)
     return;
-  
+
   struct buffer_region* current_buffer = display->current_buffer;
-  
+
   if(current_buffer->current_line == NULL || current_buffer->current_line->next == NULL){
     return;
   }
@@ -323,7 +366,7 @@ void display_pg_up(struct buffer_display * display)
   // assume we start at current current page.
   struct line* pg_start = display->start_line_ptr;
   struct line* cur = display->start_line_ptr;
-   
+
   while(cur!= NULL && cur_line < pg_size){
     cur = cur->prev;
     cur_line++;
@@ -352,7 +395,7 @@ void buffer_show(struct buffer_display* display) {
     i++;
   }
 
-  // Fill rest of screen with blanks
+  // fill rest of screen with blanks
   for(; i <display->height; i++) {
     wprintw(display->buffer_window,"\n");
   }
@@ -368,27 +411,31 @@ void mode_line_show(struct buffer_display* display) {
 
   wmove(display->mode_window,0,0);
   struct buffer_region* cur = display->current_buffer;
-  wprintw(display->mode_window,
-          "-[name:%s, cursor:%d num_lines:%d , mode:< %s > ][%d x %d]",
-          cur->buf_name,
-          display->cursor_line,
-          cur->num_lines,
-          display->insert_mode ? "Insert" : "Cmd",
-          display->height,
-          display->width);
 
-  int i  = 0;
-  for(i  = 0; i < 50; i++)
-    wprintw(display->mode_window,"%c", '-');
-  wrefresh(display->mode_window);
+  char mode_line[1024];
+  snprintf(mode_line,1024,"-[%s name: %s, cursor:%d num_lines:%d , mode:%s ][%d x %d]",
+           cur->modified ? "**" : " ",
+           cur->buf_name,
+           display->cursor_line,
+           cur->num_lines,
+           display->insert_mode ? "---INSERT---" : "---NAVIGATE----",
+           display->height,
+           display->width);
+
+  wprintw(display->mode_window,mode_line);
+
+ int i  = strlen(mode_line);
+ for(; i < display->width; i++)
+   wprintw(display->mode_window,"%c", '-');
+ wrefresh(display->mode_window);
 }
 
 
-  
+
 void display_loop() {
+
   struct buffer_display* display = malloc(sizeof(struct buffer_display));
-  display->height = 32;
-  display->width = 1024;
+
 
   display->cursor_column = 0;
   display->cursor_line = 0;
@@ -397,10 +444,16 @@ void display_loop() {
   display->insert_mode = false;
 
   display_set_buffer(display,all_buffers->cur);
-  
+
 
   char cur ;
   initscr();
+  getmaxyx(stdscr, display->height, display->width);
+  // leave space for mode line
+  display->height-=2;
+  //display->height = 32;
+  //display->width = 1024;
+
   raw();
   refresh();
   bool redisplay = false;
@@ -424,7 +477,7 @@ void display_loop() {
           move(display->cursor_line,display->cursor_column);
         } else if (KEY_BACKSPACE == cur  || 127 == cur || 8 == cur || cur == '\b') { // backspace or delete
           if(display->cursor_column > 0) {
-            buffer_delete_char(display->current_buffer, --(display->cursor_column));           
+            buffer_delete_char(display->current_buffer, --(display->cursor_column));
           }
           redisplay = true;
         } else {
@@ -432,7 +485,7 @@ void display_loop() {
           move(display->cursor_line,display->cursor_column);
           redisplay = true;
         }
-        
+
       } else if (3 == cur || 'q' == cur) { // quit
         quit = true;
         break;
@@ -477,16 +530,19 @@ void display_loop() {
           display->cursor_column = 0;
           move(display->cursor_line,0);
         }
-      } else if ('x' == cur) {        
+      } else if ('x' == cur) {
         buffer_delete_char(display->current_buffer,display->cursor_column);
         redisplay = true;
       } else if ('i' == cur) {
         display->insert_mode = true;
         move(display->cursor_line,display->cursor_column);
+      } else  if ('s' == cur) {
+        buffer_save(display->current_buffer);
+        move(display->cursor_line,display->cursor_column);
       } else {
         // ignore unknown commands
         move(display->cursor_line,display->cursor_column);
-        
+
       }
     }
   }
