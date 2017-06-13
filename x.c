@@ -54,7 +54,6 @@ struct buffer_list* buffer_list_create() {
 }
 
 struct buffer_region* buffer_alloc(char* buffer_name) {
-
   struct buffer_region* buffer = malloc(sizeof(struct buffer_region));
   int len = strlen(buffer_name);
   buffer->buf_name = (char*) malloc((len+1)*sizeof(char));
@@ -78,13 +77,11 @@ struct line* buffer_find_line(struct buffer_region* buffer, int line_number) {
 
   int cur_line = 0;
 
-
   struct line* cur = buffer->lines;
   while(cur!= NULL && cur_line < line_number){
     cur = cur->next;
     cur_line++;
   }
-
   return cur;
 }
 
@@ -195,7 +192,6 @@ struct buffer_region* buffer_open_file(char* buffer_name, char* file_path) {
   return NULL;
 }
 
-
 /**
  * Insert the character at postion speicfied in the current line
  */
@@ -231,6 +227,33 @@ void buffer_insert_char(struct buffer_region* buffer,char insert_char, int inser
 
 }
 
+/**
+ * Insert a new line into the buffer at the current line postion.
+ */
+void buffer_open_line(struct buffer_region* buffer) {
+   struct line * line  = buffer->current_line;   
+   if(NULL == line) {
+    return;
+   }   
+
+   struct line* newline = malloc(sizeof(struct line));
+   newline->line_number = -1;
+   newline->file_position = -1;   
+
+   newline->data = malloc(2*sizeof(char));
+   strncpy(newline->data,"\n",2);
+   newline->data_len = 1;
+   
+   struct line* line_next = line->next;
+   line->next = newline;
+   newline->next = line_next;
+   newline->prev = line;
+   
+   // new line will be the buffer current line
+   buffer->current_line = newline;
+   
+}
+
 void buffer_delete_current_line(struct buffer_region* buffer) {
   struct line * line  = buffer->current_line;
   
@@ -264,7 +287,7 @@ void buffer_delete_current_line(struct buffer_region* buffer) {
  * Delete the character at postion speicfied in the current line. Will
  * not overwrite the last newline character.
  */
-void buffer_delete_char(struct buffer_region* buffer,  int delete_position) {
+void buffer_delete_char(struct buffer_region* buffer, int delete_position) {
   struct line* current_line = buffer->current_line;
   if(current_line == NULL || current_line->data == NULL ){
     return;
@@ -325,7 +348,6 @@ inline void display_line_up(struct buffer_display * display) {
 
   current_buffer->current_line = current_buffer->current_line->prev;
 }
-
 
 inline void display_line_down(struct buffer_display * display) {
   if(display->current_buffer == NULL)
@@ -443,8 +465,6 @@ void mode_line_show(struct buffer_display* display) {
  wrefresh(display->mode_window);
 }
 
-
-
 void display_loop() {
 
   struct buffer_display* display = malloc(sizeof(struct buffer_display));
@@ -489,7 +509,26 @@ void display_loop() {
         } else if (KEY_BACKSPACE == cur  || 127 == cur || 8 == cur || cur == '\b') { // backspace or delete
           if(display->cursor_column > 0) {
             buffer_delete_char(display->current_buffer, --(display->cursor_column));
+          } else {
+            if(strlen(display->current_buffer->current_line->data) >= 2) {
+              move(display->cursor_line,display->cursor_column);
+              continue;
+            }
+            if(display->start_line_ptr == display->current_buffer->current_line) {
+              // move dispaly off the curreont line
+              if(NULL != display->current_buffer->current_line->next) {
+                display->start_line_ptr = display->current_buffer->current_line->next;
+              } else {
+                display->start_line_ptr = display->current_buffer->current_line->prev;
+              }
+            }
+            buffer_delete_current_line(display->current_buffer);
+            redisplay =true;
           }
+          redisplay = true;
+        } else if (10 == cur) {
+          buffer_open_line(display->current_buffer);
+          move(display->cursor_line++,display->cursor_column);
           redisplay = true;
         } else {
           buffer_insert_char(display->current_buffer, cur, display->cursor_column++);
@@ -559,7 +598,12 @@ void display_loop() {
       } else if ('i' == cur) {
         display->insert_mode = true;
         move(display->cursor_line,display->cursor_column);
-      } else  if ('s' == cur) {
+      } else if ('o' == cur) {
+        buffer_open_line(display->current_buffer);
+        move(display->cursor_line++,display->cursor_column);
+        redisplay = true;
+      }
+      else  if ('s' == cur) {
         buffer_save(display->current_buffer);
         move(display->cursor_line,display->cursor_column);
       } else {
