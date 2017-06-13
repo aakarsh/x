@@ -254,11 +254,11 @@ void buffer_open_line(struct buffer_region* buffer) {
    
 }
 
-void buffer_delete_current_line(struct buffer_region* buffer) {
+char * buffer_delete_current_line(struct buffer_region* buffer) {
   struct line * line  = buffer->current_line;
   
   if(NULL == line) {
-    return;
+    return NULL;
   }
 
   struct line* line_prev = line->prev;
@@ -278,10 +278,45 @@ void buffer_delete_current_line(struct buffer_region* buffer) {
   }
   buffer->modified = true;
   // free line
-  free(line->data);
+  char* line_data = line->data;
   free(line);
+  
+  return line_data;
 
 }
+
+/**
+ * Join the current line with the previous line. 
+ */
+void buffer_join_line(struct buffer_region* buffer) {
+  
+  struct line * line  = buffer->current_line;
+  
+  if(NULL == line) {
+    return;
+  }
+  struct line* line_prev = line->prev;
+  if(NULL == line_prev) { // no previous line to join to 
+    return;
+  }  
+  // append current line to previous line's data
+  long line_length = strlen(line->data);
+  long prev_length = strlen(line_prev->data);
+  long joined_length = line_length+prev_length+1;
+
+  char* joined_lines = realloc(line_prev->data, joined_length);
+  if(NULL == joined_lines )
+    return;  
+  line_prev->data  = strncat(joined_lines,line->data,joined_length);
+  line_prev->data_len = strlen(joined_lines);
+    
+  char* line_data = buffer_delete_current_line(buffer);
+  buffer->current_line = line_prev;
+  if(line_data)
+    free(line_data);
+  
+}
+
 
 /**
  * Delete the character at postion speicfied in the current line. Will
@@ -413,6 +448,25 @@ void display_pg_up(struct buffer_display * display)
   display->current_buffer->current_line = pg_start;
 }
 
+void display_end_of_line(struct buffer_display* display)
+{
+  struct buffer_region* buffer = display->current_buffer;
+  struct line* line = buffer->current_line;
+  long line_len = line->data_len;
+  display->cursor_column = line_len-1;
+  wmove(display->buffer_window,display->cursor_line,display->cursor_column);
+  wrefresh(display->buffer_window);
+  move(display->cursor_line,display->cursor_column);
+}
+
+void display_begining_of_line(struct buffer_display* display)
+{
+  display->cursor_column = 0;
+  wmove(display->buffer_window,display->cursor_line,display->cursor_column);
+  wrefresh(display->buffer_window);
+  move(display->cursor_line,display->cursor_column);
+}
+  
 void buffer_show(struct buffer_display* display) {
   if(display->buffer_window == NULL) {
     display->buffer_window = newwin(display->height,
@@ -500,8 +554,10 @@ void display_loop() {
 
 
     while(!redisplay) {
+      
       mode_line_show(display);
       cur = getch();
+      
       if (display->insert_mode) {
         if(3 == cur) { // Ctrl-C go back ot view mode.
           display->insert_mode = false;
@@ -522,7 +578,10 @@ void display_loop() {
                 display->start_line_ptr = display->current_buffer->current_line->prev;
               }
             }
-            buffer_delete_current_line(display->current_buffer);
+            char * line_data = buffer_delete_current_line(display->current_buffer);
+            if(line_data)
+              free(line_data);
+
             redisplay =true;
           }
           redisplay = true;
@@ -583,7 +642,12 @@ void display_loop() {
       } else if ('x' == cur) {
         buffer_delete_char(display->current_buffer,display->cursor_column);
         redisplay = true;
-      } else if ('d' == cur) {
+      } else if ('$' == cur) {
+        display_end_of_line(display);
+      } else if ('^' == cur) {
+        display_begining_of_line(display);
+
+      }else if ('d' == cur) {
         if(display->start_line_ptr == display->current_buffer->current_line) {
           // move dispaly off the curreont line
           if(NULL != display->current_buffer->current_line->next) {
@@ -602,14 +666,16 @@ void display_loop() {
         buffer_open_line(display->current_buffer);
         move(display->cursor_line++,display->cursor_column);
         redisplay = true;
-      }
-      else  if ('s' == cur) {
+      } else if ('J' == cur) {
+        buffer_join_line(display->current_buffer);        
+        move(display->cursor_line,display->cursor_column);          
+        redisplay = true;
+      } else  if ('s' == cur) {
         buffer_save(display->current_buffer);
         move(display->cursor_line,display->cursor_column);
       } else {
         // ignore unknown commands
         move(display->cursor_line,display->cursor_column);
-
       }
     }
   }
