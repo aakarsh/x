@@ -12,8 +12,6 @@
 #include <unistd.h>
 
 #define ARRAY_SIZE(x) ((sizeof x) / (sizeof *x))
-static  int DISPLAY_SIZE = 512;
-static  int DEFAULT_BUFFER_SIZE = 8192;
 
 struct line {
   // These values are for unmodified buffers lines
@@ -79,9 +77,8 @@ struct line* buffer_find_line(struct buffer_region* buffer, int line_number) {
     line_number = buffer->num_lines-1;
   }
 
-  int i = 0;
   int cur_line = 0;
-  int line_start_pos = 0;
+
 
   struct line* cur = buffer->lines;
   while(cur!= NULL && cur_line < line_number){
@@ -189,10 +186,7 @@ void buffer_insert_char(struct buffer_region* buffer,char insert_char, int inser
   
   if(modified_line == NULL) // data is left unmodified by realloc
     return;
-  
 
-  char* line = current_line->data;
-  
   // shift modified right from the insert position
   // we start from the position of `\0 at len_line+1 and move and it to len_line
   int last_postion = len_line+1;
@@ -347,8 +341,6 @@ void buffer_show(struct buffer_display* display) {
                                     display->width,0,0);
   }
 
-  struct buffer_region* buf = display->current_buffer;
-
   wmove(display->buffer_window,0,0);
   wrefresh(display->buffer_window);
 
@@ -494,6 +486,7 @@ void display_loop() {
       } else {
         // ignore unknown commands
         move(display->cursor_line,display->cursor_column);
+        
       }
     }
   }

@@ -1,4 +1,4 @@
 x: x.c
-	gcc x.c -o x -lm -lncurses
+	gcc  -s -Wall  x.c -o x -lm -lncurses
 	global -u
 	cp x ~/bin
