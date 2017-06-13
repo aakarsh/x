@@ -24,6 +24,7 @@ struct line {
   int data_len;
 
   bool modified;
+  
   struct line* next;
   struct line* prev;
 };
@@ -35,6 +36,7 @@ struct buffer_region {
   off_t fsize;
   char* buf_name;
 
+  struct line* current_line;
   struct line* lines;
 };
 
@@ -167,12 +169,47 @@ struct buffer_region* buffer_open_file(char* buffer_name, char* file_path) {
   return NULL;
 }
 
+
+/**
+ * Delete the character at postion speicfied in the current line. Will
+ * not overwrite the last newline character.
+ */
+void buffer_delete_char(struct buffer_region* buffer,  int delete_position) {
+  struct line* current_line = buffer->current_line;
+  if(current_line == NULL || current_line->data == NULL ){
+    return;
+  }
+  
+  long len_line  = strlen(current_line->data);
+  if(delete_position  >= len_line-1 || delete_position < 0) {
+    return;
+  }
+
+  int i = delete_position;
+  char* line = current_line->data;
+  for(; i < len_line-1; i++) {
+    line[i] = line[i+1];
+  }
+  line[len_line-1]='\0';
+  char * modified_line = realloc(buffer->current_line->data,(size_t) len_line);
+  
+  if(modified_line == NULL) // data is left unmodified by realloc
+    return;
+  
+  buffer->current_line->modified = true;
+  buffer->current_line->data = modified_line;  
+  buffer->current_line->data_len--;
+
+}
+
 struct buffer_display{
   int height;
   int width;
-  struct buffer_region* current_buffer;
+  
   struct line* start_line_ptr;
-  struct line* current_line_ptr;
+  struct buffer_region* current_buffer;
+
+
   int cursor_line;
   int cursor_column;
   WINDOW* mode_window;
@@ -181,23 +218,37 @@ struct buffer_display{
 
 void display_set_buffer(struct buffer_display* display, struct buffer_region* buffer) {  
   display->current_buffer = buffer;
+  display->current_buffer->current_line = display->start_line_ptr;
   display->start_line_ptr = buffer->lines;
-  display->current_line_ptr = display->start_line_ptr;
+  //  display->current_line_ptr = display->start_line_ptr;
+  buffer->current_line = display->start_line_ptr;
 }
 
 inline void display_line_up(struct buffer_display * display) {
-  if(display->current_line_ptr == NULL || display->current_line_ptr->prev == NULL){
+  if(display->current_buffer == NULL)
+    return;
+  
+  struct buffer_region* current_buffer = display->current_buffer;
+  
+  if(current_buffer->current_line == NULL || current_buffer->current_line->prev == NULL){
     return;
   }
-  display->current_line_ptr = display->current_line_ptr->prev;
+  current_buffer->current_line = current_buffer->current_line->prev;
 }
 
+
 inline void display_line_down(struct buffer_display * display) {
-  if(display->current_line_ptr == NULL || display->current_line_ptr->next == NULL){
+  if(display->current_buffer == NULL)
+    return;
+  
+  struct buffer_region* current_buffer = display->current_buffer;
+  
+  if(current_buffer->current_line == NULL || current_buffer->current_line->next == NULL){
     return;
   }
-  display->current_line_ptr = display->current_line_ptr->next;
+  current_buffer->current_line = current_buffer->current_line->next;
 }
+
 
 /**
  * Starting with current line, return pointer to starting line of next
@@ -222,6 +273,7 @@ void display_pg_down(struct buffer_display * display)
     pg_start = cur;
 
   display->start_line_ptr = pg_start;
+  display->current_buffer->current_line = pg_start;
 }
 
 /**
@@ -246,6 +298,7 @@ void display_pg_up(struct buffer_display * display)
   if(cur!=NULL)  pg_start = cur;
 
   display->start_line_ptr = pg_start;
+  display->current_buffer->current_line = pg_start;
 }
 
 void buffer_show(struct buffer_display* display) {
@@ -321,14 +374,12 @@ void display_loop() {
 
   while(!quit) {
     noecho();
-
+    move(display->cursor_line,display->cursor_column);
     buffer_show(display);
-
     wrefresh(display->mode_window);
     wrefresh(display->buffer_window);
     redisplay = false;
 
-    move(display->cursor_line,display->cursor_column);
 
     while(!redisplay) {
       mode_line_show(display);
@@ -364,10 +415,10 @@ void display_loop() {
         }
       } else if (cur == 'l') {
          if(display->cursor_column < display->width &&
-            display->cursor_column < display->current_line_ptr->data_len) {
+            display->cursor_column < display->current_buffer->current_line->data_len) {
            move(display->cursor_line,(display->cursor_column)++);
          } else {
-           display->cursor_column = display->current_line_ptr->data_len;
+           display->cursor_column = display->current_buffer->current_line->data_len;
            move(display->cursor_line,display->cursor_column);
          }
       } else if (cur == 'h') {
@@ -377,8 +428,8 @@ void display_loop() {
           display->cursor_column = 0;
           move(display->cursor_line,0);
         }
-      } else if (cur == 'x') {
-        //   buffer_delete_char(displ,display->cursor_column, 
+      } else if (cur == 'x') {        
+        buffer_delete_char(display->current_buffer,display->cursor_column);
         redisplay = true;
       }
     }
