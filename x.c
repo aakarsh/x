@@ -14,7 +14,7 @@
 #define ARRAY_SIZE(x) ((sizeof x) / (sizeof *x))
 
 struct line {
-  // These values are for unmodified buffers lines
+  // these values are for unmodified buffers lines
   long line_number;
   int file_position;
 
@@ -115,8 +115,6 @@ int buffer_fill_lines(struct buffer_region* buffer, const char* file_name) {
     struct line* cur_line = malloc(sizeof(struct line));
     cur_line->prev = NULL;
     cur_line->next = NULL;
-
-
 
     if(prev_line!=NULL) {
       prev_line->next = cur_line;
@@ -233,17 +231,32 @@ void buffer_insert_char(struct buffer_region* buffer,char insert_char, int inser
 
 }
 
-void buffer_delete_line(struct buffer_region* buffer, struct line * line) {
-
+void buffer_delete_current_line(struct buffer_region* buffer) {
+  struct line * line  = buffer->current_line;
+  
   if(NULL == line) {
     return;
   }
 
   struct line* line_prev = line->prev;
+  struct line* line_next = line->next;
   
-  if( NULL == line_prev ) {
-
+  if( NULL == line_prev ) { // deleting first line
+    buffer->lines = line_next;    
+  } else { // deleting middle line
+    line_prev->next = line_next;    
   }
+  
+  if(NULL != line_next) {
+      line_next->prev = line_prev;
+      buffer->current_line = line_next;
+  } else{
+    buffer->current_line = line_prev;
+  }
+  buffer->modified = true;
+  // free line
+  free(line->data);
+  free(line);
 
 }
 
@@ -396,8 +409,8 @@ void buffer_show(struct buffer_display* display) {
   }
 
   // fill rest of screen with blanks
-  for(; i <display->height; i++) {
-    wprintw(display->buffer_window,"\n");
+  for(; i < display->height-1; i++) {
+    wprintw(display->buffer_window,"~\n");
   }
 
 }
@@ -451,8 +464,6 @@ void display_loop() {
   getmaxyx(stdscr, display->height, display->width);
   // leave space for mode line
   display->height-=2;
-  //display->height = 32;
-  //display->width = 1024;
 
   raw();
   refresh();
@@ -532,6 +543,18 @@ void display_loop() {
         }
       } else if ('x' == cur) {
         buffer_delete_char(display->current_buffer,display->cursor_column);
+        redisplay = true;
+      } else if ('d' == cur) {
+        if(display->start_line_ptr == display->current_buffer->current_line) {
+          // move dispaly off the curreont line
+          if(NULL != display->current_buffer->current_line->next) {
+            display->start_line_ptr = display->current_buffer->current_line->next;
+          } else {
+            display->start_line_ptr = display->current_buffer->current_line->prev;
+          }
+        }
+        // now drop current line
+        buffer_delete_current_line(display->current_buffer);
         redisplay = true;
       } else if ('i' == cur) {
         display->insert_mode = true;
