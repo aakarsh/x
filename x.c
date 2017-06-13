@@ -171,6 +171,45 @@ struct buffer_region* buffer_open_file(char* buffer_name, char* file_path) {
 
 
 /**
+ * Insert the character at postion speicfied in the current line
+ */
+void buffer_insert_char(struct buffer_region* buffer,char insert_char, int insert_position) {
+  
+  struct line* current_line = buffer->current_line;
+  if(current_line == NULL || current_line->data == NULL ){
+    return;
+  }
+  
+  long len_line  = strlen(current_line->data);
+  if(insert_position  >= len_line-1 || insert_position < 0) {
+    return;
+  }
+  
+  char * modified_line = realloc(buffer->current_line->data,(size_t) (len_line+2));
+  
+  if(modified_line == NULL) // data is left unmodified by realloc
+    return;
+  
+
+  char* line = current_line->data;
+  
+  // shift modified right from the insert position
+  // we start from the position of `\0 at len_line+1 and move and it to len_line
+  int last_postion = len_line+1;
+  int i = last_postion;
+  for(;i > insert_position ; i--)
+    modified_line[i]=modified_line[i-1];
+  
+  modified_line[insert_position] = insert_char;
+  buffer->current_line->modified = true;
+  buffer->current_line->data = modified_line;  
+  buffer->current_line->data_len++;
+  
+}
+
+
+
+/**
  * Delete the character at postion speicfied in the current line. Will
  * not overwrite the last newline character.
  */
@@ -199,13 +238,14 @@ void buffer_delete_char(struct buffer_region* buffer,  int delete_position) {
   buffer->current_line->modified = true;
   buffer->current_line->data = modified_line;  
   buffer->current_line->data_len--;
-
 }
+
 
 struct buffer_display{
   int height;
   int width;
-  
+
+  bool insert_mode;
   struct line* start_line_ptr;
   struct buffer_region* current_buffer;
 
@@ -220,7 +260,6 @@ void display_set_buffer(struct buffer_display* display, struct buffer_region* bu
   display->current_buffer = buffer;
   display->current_buffer->current_line = display->start_line_ptr;
   display->start_line_ptr = buffer->lines;
-  //  display->current_line_ptr = display->start_line_ptr;
   buffer->current_line = display->start_line_ptr;
 }
 
@@ -233,6 +272,7 @@ inline void display_line_up(struct buffer_display * display) {
   if(current_buffer->current_line == NULL || current_buffer->current_line->prev == NULL){
     return;
   }
+  
   current_buffer->current_line = current_buffer->current_line->prev;
 }
 
@@ -337,10 +377,11 @@ void mode_line_show(struct buffer_display* display) {
   wmove(display->mode_window,0,0);
   struct buffer_region* cur = display->current_buffer;
   wprintw(display->mode_window,
-          "-[name:%s, cursor:%d num_lines:%d ][%d x %d]",
+          "-[name:%s, cursor:%d num_lines:%d , mode:< %s > ][%d x %d]",
           cur->buf_name,
           display->cursor_line,
           cur->num_lines,
+          display->insert_mode ? "Insert" : "Cmd",
           display->height,
           display->width);
 
@@ -361,6 +402,7 @@ void display_loop() {
   display->cursor_line = 0;
   display->mode_window = NULL;
   display->buffer_window = NULL;
+  display->insert_mode = false;
 
   display_set_buffer(display,all_buffers->cur);
   
@@ -384,7 +426,22 @@ void display_loop() {
     while(!redisplay) {
       mode_line_show(display);
       cur = getch();
-      if (cur == 3 || cur == 'q') { // quit
+      if (display->insert_mode) {
+        if(3 == cur) { // Ctrl-C go back ot view mode.
+          display->insert_mode = false;
+          move(display->cursor_line,display->cursor_column);
+        } else if (KEY_BACKSPACE == cur  || 127 == cur || 8 == cur || cur == '\b') { // backspace or delete
+          if(display->cursor_column > 0) {
+            buffer_delete_char(display->current_buffer, --(display->cursor_column));           
+          }
+          redisplay = true;
+        } else {
+          buffer_insert_char(display->current_buffer, cur, display->cursor_column++);
+          move(display->cursor_line,display->cursor_column);
+          redisplay = true;
+        }
+        
+      } else if (3 == cur || 'q' == cur) { // quit
         quit = true;
         break;
       } else if (cur == '<') {
@@ -395,7 +452,7 @@ void display_loop() {
         display->cursor_line = 0;
         redisplay = true;
         display_pg_down(display);
-      } else if (cur == 'j') {
+      } else if ('j' == cur) {
         if(display->cursor_line+1 >= display->height)  {
           display->cursor_line =0;
           redisplay = true;
@@ -404,16 +461,16 @@ void display_loop() {
           display_line_down(display);
           move(++display->cursor_line,display->cursor_column);
         }
-      } else if (cur == 'k') {
-        if(display->cursor_line -1 <= 0){
+      } else if ('k' == cur) {
+        if(display->cursor_line - 1 < 0){
           display_pg_up(display);
           display->cursor_line = display->height;
           redisplay = true;
         } else {
-                display_line_up(display);
-                move(--(display->cursor_line),display->cursor_column);
+          display_line_up(display);
+          move(--(display->cursor_line),display->cursor_column);
         }
-      } else if (cur == 'l') {
+      } else if ('l' == cur) {
          if(display->cursor_column < display->width &&
             display->cursor_column < display->current_buffer->current_line->data_len) {
            move(display->cursor_line,(display->cursor_column)++);
@@ -421,16 +478,22 @@ void display_loop() {
            display->cursor_column = display->current_buffer->current_line->data_len;
            move(display->cursor_line,display->cursor_column);
          }
-      } else if (cur == 'h') {
+      } else if ('h' == cur) {
         if(display->cursor_column > 0) {
           move(display->cursor_line,--(display->cursor_column));
         } else{
           display->cursor_column = 0;
           move(display->cursor_line,0);
         }
-      } else if (cur == 'x') {        
+      } else if ('x' == cur) {        
         buffer_delete_char(display->current_buffer,display->cursor_column);
         redisplay = true;
+      } else if ('i' == cur) {
+        display->insert_mode = true;
+        move(display->cursor_line,display->cursor_column);
+      } else {
+        // ignore unknown commands
+        move(display->cursor_line,display->cursor_column);
       }
     }
   }
