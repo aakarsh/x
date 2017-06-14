@@ -20,7 +20,6 @@ struct line {
 
   char * data;
   int data_len;
-  
   struct line* next;
   struct line* prev;
 };
@@ -204,7 +203,7 @@ void buffer_insert_char(struct buffer_region* buffer,char insert_char, int inser
 
   long len_line  = strlen(current_line->data);
 
-  if(insert_position  >= len_line-1 || insert_position < 0) {
+  if(insert_position  >= (len_line-1) || insert_position < 0) {
     return;
   }
 
@@ -401,7 +400,7 @@ inline void display_line_down(struct buffer_display * display) {
  * Starting with current line, return pointer to starting line of next
  * page, where page will be number of lines to keep on the page.
  */
-void display_pg_down(struct buffer_display * display)
+bool display_pg_down(struct buffer_display * display)
 {
   // Using display height as page size
   long pg_size = display->height;
@@ -421,13 +420,16 @@ void display_pg_down(struct buffer_display * display)
 
   display->start_line_ptr = pg_start;
   display->current_buffer->current_line = pg_start;
+
+  display->cursor_line = 0;
+  return true;
 }
 
 /**
  * Starting with current line, return pointer to starting line of next
  * page, where page will be number of lines to keep on the page.
  */
-void display_pg_up(struct buffer_display * display)
+bool display_pg_up(struct buffer_display * display)
 {
   // Using display height as page size
   long pg_size = display->height;
@@ -446,28 +448,38 @@ void display_pg_up(struct buffer_display * display)
 
   display->start_line_ptr = pg_start;
   display->current_buffer->current_line = pg_start;
+
+  // set cursor back to top the screen
+  display->cursor_line = 0;
+  return true;
 }
 
-void display_end_of_line(struct buffer_display* display)
+
+/**
+ * return - Value will indicate whether full redisplay is required.
+ */
+bool display_end_of_line(struct buffer_display* display)
 {
   struct buffer_region* buffer = display->current_buffer;
   struct line* line = buffer->current_line;
-  long line_len = line->data_len;
-  display->cursor_column = line_len-1;
+  long line_len = strlen(line->data);
+  display->cursor_column = line_len-2;
   wmove(display->buffer_window,display->cursor_line,display->cursor_column);
   wrefresh(display->buffer_window);
   move(display->cursor_line,display->cursor_column);
+  return false;
 }
 
-void display_begining_of_line(struct buffer_display* display)
+bool display_begining_of_line(struct buffer_display* display)
 {
   display->cursor_column = 0;
   wmove(display->buffer_window,display->cursor_line,display->cursor_column);
   wrefresh(display->buffer_window);
   move(display->cursor_line,display->cursor_column);
+  return false;
 }
   
-void buffer_show(struct buffer_display* display) {
+void display_redraw(struct buffer_display* display) {
   if(display->buffer_window == NULL) {
     display->buffer_window = newwin(display->height,
                                     display->width,0,0);
@@ -502,10 +514,12 @@ void mode_line_show(struct buffer_display* display) {
   struct buffer_region* cur = display->current_buffer;
 
   char mode_line[1024];
-  snprintf(mode_line,1024,"-[%s name: %s, cursor:%d num_lines:%d , mode:%s ][%d x %d]",
+  snprintf(mode_line,1024,"-[%s name: %s, cursor:(%d,%d) len:%d num_lines:%d , mode:%s ][%d x %d]",
            cur->modified ? "**" : " ",
            cur->buf_name,
            display->cursor_line,
+           display->cursor_column,
+           (int)strlen(cur->current_line->data),
            cur->num_lines,
            display->insert_mode ? "---INSERT---" : "---NAVIGATE----",
            display->height,
@@ -547,7 +561,7 @@ void display_loop() {
   while(!quit) {
     noecho();
     move(display->cursor_line,display->cursor_column);
-    buffer_show(display);
+    display_redraw(display);
     wrefresh(display->mode_window);
     wrefresh(display->buffer_window);
     redisplay = false;
@@ -562,6 +576,11 @@ void display_loop() {
         if(3 == cur) { // Ctrl-C go back ot view mode.
           display->insert_mode = false;
           move(display->cursor_line,display->cursor_column);
+        } else if(KEY_ENTER == cur) {
+          buffer_open_line(display->current_buffer);
+          display->cursor_column =0;
+          move(++display->cursor_line,display->cursor_column);
+          redisplay = true;
         } else if (KEY_BACKSPACE == cur  || 127 == cur || 8 == cur || cur == '\b') { // backspace or delete
           if(display->cursor_column > 0) {
             buffer_delete_char(display->current_buffer, --(display->cursor_column));
@@ -593,19 +612,15 @@ void display_loop() {
           buffer_insert_char(display->current_buffer, cur, display->cursor_column++);
           move(display->cursor_line,display->cursor_column);
           redisplay = true;
-        }
-
+        }        
+        // Navigation Commands
       } else if (3 == cur || 'q' == cur) { // quit
         quit = true;
         break;
       } else if (cur == '<') {
-        display->cursor_line = 0;
-        redisplay = true;
-        display_pg_up(display);
+        redisplay = display_pg_up(display);
       } else if (cur == '>'){
-        display->cursor_line = 0;
-        redisplay = true;
-        display_pg_down(display);
+        redisplay = display_pg_down(display);
       } else if ('j' == cur) {
         if(display->cursor_line+1 >= display->height)  {
           display->cursor_line =0;
@@ -646,8 +661,7 @@ void display_loop() {
         display_end_of_line(display);
       } else if ('^' == cur) {
         display_begining_of_line(display);
-
-      }else if ('d' == cur) {
+      } else if ('d' == cur) {
         if(display->start_line_ptr == display->current_buffer->current_line) {
           // move dispaly off the curreont line
           if(NULL != display->current_buffer->current_line->next) {
@@ -694,3 +708,4 @@ int main(int argc, char* argv[]){
   }
   return 0;
 }
+
