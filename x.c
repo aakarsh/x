@@ -24,8 +24,6 @@ struct line {
   struct line* prev;
 };
 
-
-
 /**
  * Creates a line initialized with the copy of data;
  */
@@ -80,6 +78,31 @@ struct line* line_merge(struct line* line,struct line** list_head) {
 
   line_prev->next = line->next;
   return line_prev;
+}
+
+struct line* line_split(struct line* line, int split_pos, struct line** line_head)
+{
+  char* line_data = line->data;
+  int line_len = strlen(line_data);
+
+  if(split_pos >= line_len)
+    return line;
+
+  struct line* new_line = malloc(sizeof(struct line));
+
+  int l2 = (line_len - split_pos)+1;
+  
+  new_line->data  = malloc(l2 * sizeof(char));
+  strncpy(new_line->data,line->data+split_pos,l2);
+  new_line->data_len = strlen(new_line->data);
+
+
+  line->data = realloc(line->data,split_pos+1);
+  line->data[split_pos] = '\0';
+
+  line_insert(new_line,line,line_head);
+
+  return new_line;
 }
 
 /**
@@ -289,7 +312,7 @@ void buffer_insert_char(struct buffer_region* buffer,char insert_char, int inser
 
   long len_line  = strlen(current_line->data);
 
-  if(insert_position  >= (len_line-1) || insert_position < 0) {
+  if(insert_position  > len_line || insert_position < 0) {
     return;
   }
 
@@ -352,23 +375,20 @@ char * buffer_delete_current_line(struct buffer_region* buffer) {
   return line_data;
 }
 
-void buffer_split_line(struct buffer_region* buffer, int split_postion){
+bool buffer_split_line(struct buffer_region* buffer, int split_postion){
   struct line* line  = buffer->current_line;
   
   if(NULL == line )
-    return;
+    return false;
 
   char* line_data = line->data;
   int line_len = strlen(line_data);
   
   if(split_postion >= line_len)
-    return;
+    return false;
 
-  //int first_half_length =  split_postion;
-  //  int second_half_length = line_len - split_postion;
-
-  //struct line* line = malloc(sizeof(struct line));
-  
+  buffer->current_line = line_split(buffer->current_line,split_postion,&buffer->lines);
+  return true;
   
 }
 
@@ -651,6 +671,10 @@ bool display_cursor_eolp(struct buffer_display* display) {
   return display->cursor_column == last_postion;  
 }
 
+bool display_cursor_within_line(struct buffer_display* display) {
+  int last_postion = display->current_buffer->current_line->data_len;
+  return display->cursor_column >=0  && display->cursor_column <= last_postion;
+}
 
 /**
  * Handle carriage return in insert mode.
@@ -658,10 +682,16 @@ bool display_cursor_eolp(struct buffer_display* display) {
 bool display_insert_cr(struct buffer_display* display) {
   if(display_cursor_eolp(display)) {
       buffer_open_line(display->current_buffer);
-      display->cursor_column =0;
-      display->cursor_line +=1;
+      display->cursor_column = 0;
+      display->cursor_line   +=1;
       move(display->cursor_line,display->cursor_column);
-    } // TODO split line
+  } else if(display_cursor_within_line(display)) {
+    if(buffer_split_line(display->current_buffer,display->cursor_column)) {
+      display->cursor_column =0;
+      display->cursor_column +=1;
+      move(display->cursor_line,display->cursor_column);
+    }
+  }
   return true;
 }
 
@@ -757,7 +787,7 @@ struct buffer_display*  display_init(struct buffer_region* buffer) {
   display_set_buffer(display, buffer);
   return display;  
 }
-x
+
 void start_display(struct buffer_region* buffer) {
   
   struct buffer_display* display = display_init(buffer);  
@@ -889,7 +919,12 @@ void start_display(struct buffer_region* buffer) {
   endwin();
 }
 
+
+void run_tests();
+
 int main(int argc, char* argv[]){
+  run_tests();
+
   all_buffers = buffer_list_create();
   if(argc > 1)
     all_buffers->cur = buffer_open_file("x.c", argv[1]);
@@ -902,3 +937,13 @@ int main(int argc, char* argv[]){
   return 0;
 }
 
+
+void test_line_split() {
+ struct line* l = line_create("hello world");
+  l = line_split(l,6,NULL);
+  assert(strcmp("world",l->data) == 0);
+}
+
+void run_tests() {
+ test_line_split();
+}
