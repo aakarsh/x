@@ -408,23 +408,7 @@ void buffer_join_line(struct buffer_region* buffer) {
   if(NULL == line_prev) { // no previous line to join to 
     return;
   }
-  
-  /*
-  // append current line to previous line's data
-  long line_length = strlen(line->data);
-  long prev_length = strlen(line_prev->data);
-
-  long joined_length = line_length + prev_length + 1;
-
-  char* joined_lines = realloc(line_prev->data, joined_length);
-
-  if(NULL == joined_lines )
-    return;
-  
-  line_prev->data  = strncat(joined_lines,line->data,joined_length);
-  line_prev->data_len = strlen(joined_lines);
-  */
-  
+   
   line_merge(line,&buffer->lines);
   buffer->current_line = line_prev;
 
