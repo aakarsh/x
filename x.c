@@ -13,12 +13,40 @@
 
 #define ARRAY_SIZE(x) ((sizeof x) / (sizeof *x))
 
-
-
 const char* log_file ="x.log";
-FILE* X_LOG;
 
-#define LOG(...) do { fprintf(X_LOG,__VA_ARGS__); fflush(X_LOG); } while(0);
+enum log_level{LOG_LEVEL_INFO, LOG_LEVEL_DEBUG};
+  
+struct log {
+  enum log_level level;
+  char* log_file;
+  FILE* log;
+};
+
+struct log* XLOG;
+
+#define LOG_DEBUG( ...)                            \
+  do {                                          \
+    if((XLOG)->level >=  LOG_LEVEL_DEBUG) {      \
+      fprintf((XLOG)->log,__VA_ARGS__);          \
+      fflush((XLOG)->log);                       \
+    }                                           \
+  } while(0);
+
+
+struct log* logging_init(){
+  struct log* log = malloc(sizeof(struct log));
+  log->level = LOG_LEVEL_DEBUG;
+  log->log = fopen("x.log","w+");
+  XLOG = log;
+  return log;
+}
+
+void logging_end(struct log* log){
+  fclose(log->log);
+  free(log->log_file);
+  free(log);
+}
 
 struct line {
   // these values are for unmodified buffers lines
@@ -55,7 +83,7 @@ void line_insert(struct line* new_line,struct line* prev_line, struct line** lin
   new_line->next = NULL;
 
   if(prev_line != NULL) {
-    LOG("Try int insert [%s] after [%s]\n",new_line->data,prev_line->data);
+    LOG_DEBUG("Try int insert [%s] after [%s]\n",new_line->data,prev_line->data);
 
     new_line->prev = prev_line;
     
@@ -111,7 +139,7 @@ struct line* line_split(struct line* line, int split_pos, struct line** line_hea
   new_line->data  = malloc(l2 * sizeof(char));
   strncpy(new_line->data,line->data+split_pos,l2);
 
-  LOG( "line_split: new_line : %s" ,new_line->data);
+  LOG_DEBUG( "line_split: new_line : %s" ,new_line->data);
   new_line->data_len = strlen(new_line->data);
 
 
@@ -119,9 +147,9 @@ struct line* line_split(struct line* line, int split_pos, struct line** line_hea
   line->data[split_pos]= '\n';
   line->data[split_pos+1] = '\0';
 
-  LOG( "line_split: previous line : [%s]" ,line->data);
-  LOG( "line_split: new      line : [%s]" ,new_line->data);
-  fflush(X_LOG);
+  LOG_DEBUG( "line_split: previous line : [%s]" ,line->data);
+  LOG_DEBUG( "line_split: new      line : [%s]" ,new_line->data);
+
 
   line_insert(new_line,line,line_head);
 
@@ -154,7 +182,6 @@ struct line* line_unlink(struct line* line, struct line** line_head) {
 
   return line;
 }
-
 
 struct buffer_region {
   off_t size;
@@ -373,7 +400,6 @@ void buffer_open_line(struct buffer_region* buffer) {
    
    // new line will be the buffer current line
    buffer->current_line = newline;
-   
 }
 
 char * buffer_delete_current_line(struct buffer_region* buffer) {
@@ -404,8 +430,7 @@ bool buffer_split_line(struct buffer_region* buffer, int split_postion){
   if(NULL == line )
     return false;
 
-  LOG( "buffer_split_line: position: %d\n",split_postion);
-  fflush(X_LOG);
+  LOG_DEBUG( "buffer_split_line: position: %d\n",split_postion);
   
   char* line_data = line->data;
   int line_len = strlen(line_data);
@@ -414,8 +439,8 @@ bool buffer_split_line(struct buffer_region* buffer, int split_postion){
     return false;
 
   buffer->current_line = line_split(buffer->current_line,split_postion,&buffer->lines);
-  LOG("buffer_split_line: current line :%s \n",buffer->current_line->data);
-  fflush(X_LOG);
+  LOG_DEBUG("buffer_split_line: current line :%s \n",buffer->current_line->data);
+
   return true;
   
 }
@@ -513,7 +538,6 @@ inline void display_line_up(struct buffer_display * display) {
   if(current_buffer->current_line == NULL || current_buffer->current_line->prev == NULL){
     return;
   }
-
   current_buffer->current_line = current_buffer->current_line->prev;
 }
 
@@ -539,7 +563,6 @@ bool display_line_down(struct buffer_display * display) {
 
   return false;
 }
-
 
 /**
  * Starting with current line, return pointer to starting line of next
@@ -626,8 +649,7 @@ bool display_begining_of_line(struct buffer_display* display)
   
 void display_redraw(struct buffer_display* display) {
 
-  LOG("Called: display_redraw \n");
-  fflush(X_LOG);
+  LOG_DEBUG("Called: display_redraw \n");
 
   if(display->buffer_window == NULL) {
     display->buffer_window = newwin(display->height,
@@ -687,7 +709,6 @@ bool display_on_last_linep(struct buffer_display* display) {
   return buffer->current_line->next == NULL;
 }
 
-
 /**
  * Test that we are at the end of the current buffer's  line;
  */
@@ -701,20 +722,19 @@ bool display_cursor_within_line(struct buffer_display* display) {
   return display->cursor_column >=0  && display->cursor_column <= last_postion;
 }
 
-
 /**
  * Handle carriage return in insert mode.
  */
 bool display_insert_cr(struct buffer_display* display) {
   
-  LOG("called display_insert_cr line[%d] col:[%d] \n",display->cursor_line,display->cursor_column);
+  LOG_DEBUG("called display_insert_cr line[%d] col:[%d] \n",display->cursor_line,display->cursor_column);
   
   if(buffer_split_line(display->current_buffer,display->cursor_column)) {
     display->cursor_column =0;
     display->cursor_line +=1;
     move(display->cursor_line,display->cursor_column);
   }  
-  LOG("display_insert_cr line [%d] col:[%d] \n",display->cursor_line,display->cursor_column);  
+  LOG_DEBUG("display_insert_cr line [%d] col:[%d] \n",display->cursor_line,display->cursor_column);  
   return true;
 }
 
@@ -846,14 +866,14 @@ void start_display(struct buffer_region* buffer) {
       mode_line_show(display);
       cur = getch();
 
-      LOG("display_loop: received [%c] \n",cur);
+      LOG_DEBUG("display_loop: received [%c] \n",cur);
 
       
       if (display->mode == INSERT_MODE) {
         if(3 == cur) { // Ctrl-C go back ot view mode.
           redisplay = display_to_command_mode(display);
         } else if(KEY_ENTER == cur || '\n' == cur ) {
-           LOG("display_loop: Detected Enter in INSERT_MODE\n");
+          LOG_DEBUG("display_loop: Detected Enter in INSERT_MODE\n");
            redisplay = display_insert_cr(display);
         } else if (KEY_BACKSPACE == cur  || 127 == cur || 8 == cur || cur == '\b') { // backspace or delete
           redisplay = display_insert_backspace(display);
@@ -871,8 +891,10 @@ void start_display(struct buffer_region* buffer) {
         quit = true;
         break;
       } else if (cur == '<') {
+        display->cursor_column = 0;
         redisplay = display_pg_up(display);
       } else if (cur == '>'){
+        display->cursor_column = 0;
         redisplay = display_pg_down(display);
       } else if ('j' == cur) {
         if(display_on_last_linep(display)) {
@@ -930,6 +952,7 @@ void start_display(struct buffer_region* buffer) {
             display->start_line_ptr = display->current_buffer->current_line->prev;
           }
         }
+        
         // now drop current line
         buffer_delete_current_line(display->current_buffer);
         redisplay = true;
@@ -960,7 +983,9 @@ void start_display(struct buffer_region* buffer) {
 void run_tests();
 
 int main(int argc, char* argv[]){
-  X_LOG =  fopen("x.log","w+");
+
+  XLOG = logging_init();
+
   run_tests();
 
   all_buffers = buffer_list_create();
@@ -973,9 +998,12 @@ int main(int argc, char* argv[]){
     start_display(all_buffers->cur);
   }
 
-  fclose(X_LOG);
+  logging_end(XLOG);
+                      
   return 0;
 }
+
+
 
 
 void test_line_split() {
@@ -988,3 +1016,4 @@ void test_line_split() {
 void run_tests() {
  test_line_split();
 }
+
