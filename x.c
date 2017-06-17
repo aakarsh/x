@@ -20,9 +20,8 @@ enum log_level{LOG_LEVEL_INFO, LOG_LEVEL_DEBUG};
 struct log {
   enum log_level level;
   char* log_file;
-  FILE* log;
+  FILE* debug_file;
 };
-
 
 struct line {
   long line_number;
@@ -70,8 +69,6 @@ struct buffer_list {
   struct buffer* cur;  
 };
 
-
-
 enum display_mode { INSERT_MODE,COMMAND_MODE };
 
 struct display{
@@ -89,16 +86,13 @@ struct display{
   WINDOW* buffer_window;
 };
 
-
-
-
 struct log* XLOG;
 
 #define LOG_DEBUG( ...)                            \
   do {                                          \
     if((XLOG)->level >=  LOG_LEVEL_DEBUG) {      \
-      fprintf((XLOG)->log,__VA_ARGS__);          \
-      fflush((XLOG)->log);                       \
+      fprintf((XLOG)->debug_file,__VA_ARGS__);          \
+      fflush((XLOG)->debug_file);                       \
     }                                           \
   } while(0);
 
@@ -107,8 +101,11 @@ struct log*
 logging_init()
 {
   struct log* log = malloc(sizeof(struct log));
+  log->level = 0;
+  #ifdef DEBUG
   log->level = LOG_LEVEL_DEBUG;
-  log->log = fopen("x.log","w+");
+  log->debug_file = fopen("x-debug.log","w+");
+  #endif
   XLOG = log;
   return log;
 }
@@ -116,7 +113,9 @@ logging_init()
 void
 logging_end(struct log* log)
 {
-  fclose(log->log);
+  #ifdef DEBUG
+  fclose(log->debug_file);
+  #endif
   free(log->log_file);
   free(log);
 }
@@ -1117,7 +1116,6 @@ int main(int argc, char* argv[]){
 
   return 0;
 }
-
 
 void test_line_split() {
  struct line* l = line_create("hello world");
