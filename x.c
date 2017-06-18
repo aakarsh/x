@@ -38,13 +38,13 @@ struct search_state {
   int prev_line;
   int prev_col;
   char* str;
-  
+
   /** Buffer searching */
   bool found;
   int line_number;
   int line_column;
-  
-  struct line* found_line;  
+
+  struct line* found_line;
 };
 
 /**
@@ -73,9 +73,13 @@ struct buffer_list {
   struct buffer* cur;
 };
 
-enum display_mode { INSERT_MODE,COMMAND_MODE,SEARCH_MODE };
+enum display_mode
+  { INSERT_MODE,
+    COMMAND_MODE,
+    SEARCH_MODE };
 
-struct display{
+
+struct display {
   int height;
   int width;
 
@@ -92,11 +96,11 @@ struct display{
 
 struct log* XLOG;
 
-#define LOG_DEBUG( ...)                            \
+#define LOG_DEBUG( ...)                         \
   do {                                          \
-    if((XLOG)->level >=  LOG_LEVEL_DEBUG) {      \
-      fprintf((XLOG)->debug_file,__VA_ARGS__);          \
-      fflush((XLOG)->debug_file);                       \
+    if((XLOG)->level >=  LOG_LEVEL_DEBUG) {     \
+      fprintf((XLOG)->debug_file,__VA_ARGS__);  \
+      fflush((XLOG)->debug_file);               \
     }                                           \
   } while(0);
 
@@ -178,7 +182,8 @@ line_insert(struct line* new_line,
  * need to handle the newline.
  */
 struct line*
-line_merge(struct line* line,struct line** list_head)
+line_merge(struct line* line,
+           struct line** list_head)
 {
 
   if(NULL == line->prev )
@@ -204,7 +209,9 @@ line_merge(struct line* line,struct line** list_head)
 }
 
 struct line*
-line_split(struct line* line, int split_pos, struct line** line_head)
+line_split(struct line* line,
+           int split_pos,
+           struct line** line_head)
 {
   char* line_data = line->data;
   int line_len = strlen(line_data);
@@ -239,7 +246,8 @@ line_split(struct line* line, int split_pos, struct line** line_head)
  * Unlink the line from line list.
  */
 struct line*
-line_unlink(struct line* line, struct line** line_head)
+line_unlink(struct line* line,
+            struct line** line_head)
 {
 
   struct line* line_prev = line->prev;
@@ -291,7 +299,8 @@ buffer_alloc(char* buffer_name)
  * field.
  */
 struct line*
-buffer_find_line(struct buffer* b, int num)
+buffer_find_line(struct buffer* b,
+                 int num)
 {
 
   if(num <= 0) { // go to begining of buffer
@@ -404,7 +413,8 @@ buffer_save(struct buffer* buffer)
  * Opens a file given by file path
  */
 struct buffer*
-buffer_open_file(char* buffer_name, char* file_path)
+buffer_open_file(char* buffer_name,
+                 char* file_path)
 {
   struct stat file_stat;
 
@@ -616,7 +626,7 @@ buffer_search_forward(struct buffer* buffer, int start_line)
     if((found= strstr(line->data,search))!= NULL)
       break;
   }
-  
+
   if(NULL == line) {
     LOG_DEBUG("not found!");
     buffer->search->found = false;
@@ -630,12 +640,12 @@ buffer_search_forward(struct buffer* buffer, int start_line)
   buffer->search->line_number = line_num;
   buffer->search->line_column = found - line->data;
   buffer->search->found = true;
-  
+
   LOG_DEBUG("Found \n[%s]\n at (line,column): (%d,%d)\n",
             line->data,
             buffer->search->line_number,
             buffer->search->line_column);
-  
+
   return line;
 }
 
@@ -652,8 +662,8 @@ display_set_buffer(struct display* display,
   buffer->current_line = display->start_line_ptr;
 }
 
-void 
-display_line_up(struct display * display) 
+void
+display_line_up(struct display * display)
 {
   if(display->current_buffer == NULL)
     return;
@@ -728,6 +738,7 @@ display_pg_down(struct display * display)
 bool
 display_pg_up(struct display * display)
 {
+
   // Using display height as page size
   long pg_size = display->height;
   int cur_line = 0;
@@ -751,6 +762,29 @@ display_pg_up(struct display * display)
   return true;
 }
 
+bool
+display_pg_up_begin(struct display * display,void* misc)
+{
+  display_pg_up(display);
+  display->cursor_line = 0;
+  return true;
+}
+
+bool
+display_pg_down_begin(struct display * display,void* misc)
+{
+  display_pg_down(display);
+  display->cursor_line = 0;
+  return true;
+}
+
+bool
+display_pg_up_end(struct display * display,void* misc)
+{
+  display_pg_up(display);
+  display->cursor_line = display->height;
+  return true;
+}
 
 /**
  * return - Value will indicate whether full redisplay is required.
@@ -778,32 +812,6 @@ display_begining_of_line(struct display* display)
   return false;
 }
 
-void
-display_redraw(struct display* display)
-{
-  LOG_DEBUG("Called: display_redraw \n");
-
-  if(display->buffer_window == NULL) {
-    display->buffer_window = newwin(display->height,
-                                    display->width,0,0);
-  }
-
-  wmove(display->buffer_window,0,0);
-  wrefresh(display->buffer_window);
-
-  int i = 0;
-  struct line* start_line_ptr = display->start_line_ptr;
-  while(start_line_ptr!=NULL && i < display->height) {
-    wprintw(display->buffer_window,"%s",start_line_ptr->data);
-    start_line_ptr = start_line_ptr->next;
-    i++;
-  }
-
-  // fill rest of screen with blanks
-  for(; i < display->height-1; i++) {
-    wprintw(display->buffer_window,"~\n");
-  }
-}
 
 bool
 display_to_insert_mode(struct display* display)
@@ -850,11 +858,105 @@ display_on_last_linep(struct display* display)
   return buffer->current_line->next == NULL;
 }
 
+bool
+display_move_line_up(struct display* display, void* misc)
+{
+  bool redisplay = false;
+  if(display_on_first_linep(display)) {
+    move(display->cursor_line,display->cursor_column);
+    return redisplay;
+  }
+  if(display->cursor_line - 1 < 0){
+    display_pg_up(display);
+    display->cursor_line = display->height;
+    redisplay = true;
+  } else {
+    display_line_up(display);
+    move(--(display->cursor_line),display->cursor_column);
+  }
+  return redisplay;
+}
+
+bool
+display_move_line_down(struct display* display,
+                       void* misc)
+{
+  bool redisplay = false;
+  if(display_on_last_linep(display)) {
+    move(display->cursor_line,display->cursor_column);
+    return redisplay;
+  }
+  if(display->cursor_line + 1 >= display->height)  {
+    display->cursor_line =0;
+    redisplay = true;
+    display_pg_down(display);
+  } else {
+    display_line_down(display);
+  }
+  return redisplay;
+}
+
+bool
+display_move_left(struct display* display,
+                       void* misc)
+{
+  bool redisplay = false;
+  if(display->cursor_column < display->width &&
+     display->cursor_column < display->current_buffer->current_line->data_len -1) {
+    move(display->cursor_line,display->cursor_column++);
+  } else {
+    display->cursor_column = display->current_buffer->current_line->data_len;
+    move(display->cursor_line,display->cursor_column);
+  }
+  return redisplay;
+}
+
+bool
+display_move_right(struct display* display,
+                   void* misc)
+{
+  if(display->cursor_column > 0) {
+    move(display->cursor_line,--(display->cursor_column));
+  } else{
+    display->cursor_column = 0;
+    move(display->cursor_line,0);
+  }
+  return false;
+}
+
+void
+display_redraw(struct display* display)
+{
+  LOG_DEBUG("Called: display_redraw \n");
+
+  if(display->buffer_window == NULL) {
+    display->buffer_window = newwin(display->height,
+                                    display->width,0,0);
+  }
+
+  wmove(display->buffer_window,0,0);
+  wrefresh(display->buffer_window);
+
+  int i = 0;
+  struct line* start_line_ptr = display->start_line_ptr;
+  while(start_line_ptr!=NULL && i < display->height) {
+    wprintw(display->buffer_window,"%s",start_line_ptr->data);
+    start_line_ptr = start_line_ptr->next;
+    i++;
+  }
+
+  // fill rest of screen with blanks
+  for(; i < display->height-1; i++) {
+    wprintw(display->buffer_window,"~\n");
+  }
+}
+
+
 /**
  * Recomputes the display line number may not be as efficient as
  * keeping display line number in-sync with buffer line number.
  */
-int 
+int
 display_line_number(struct display* display)
 {
   struct line* line  = display->current_buffer->current_line;
@@ -890,14 +992,27 @@ display_insert_cr(struct display* display)
 {
   LOG_DEBUG("called display_insert_cr line[%d] col:[%d] \n",
             display->cursor_line,display->cursor_column);
-  
+
   if(buffer_split_line(display->current_buffer,display->cursor_column)) {
     display->cursor_column =0;
     display->cursor_line +=1;
     move(display->cursor_line,display->cursor_column);
   }
-  
+
   LOG_DEBUG("display_insert_cr line [%d] col:[%d] \n",display->cursor_line,display->cursor_column);
+  return true;
+}
+
+bool
+display_open_line(struct display* display,void* misc)
+{
+  LOG_DEBUG("called display_insert_cr line[%d] col:[%d] \n",
+            display->cursor_line,display->cursor_column);
+  buffer_open_line(display->current_buffer);
+
+  display->cursor_line+=1;
+  move(display->cursor_line,display->cursor_column);
+  display->mode = INSERT_MODE;
   return true;
 }
 
@@ -907,10 +1022,20 @@ display_startlinep(struct display* display)
   return display->start_line_ptr == display->current_buffer->current_line;
 }
 
+bool
+display_insert_char(struct display* display, void* misc)
+{
+  char* cur = (char*) misc;
+  buffer_insert_char(display->current_buffer, *cur, display->cursor_column);
+  display->cursor_column += 1;
+  move(display->cursor_line,display->cursor_column);
+  return true;
+}
+
 /**
  * Moves cursor to a particular line or column in the buffer. If the
  * line lies out of current sceen. Scrolls the buffer so that the
- * matching line shows on the last line of column 
+ * matching line shows on the last line of column
  */
 bool
 display_goto_position(struct display* display, int nline, int column)
@@ -924,7 +1049,7 @@ display_goto_position(struct display* display, int nline, int column)
   while(n < nline && NULL != line ) {
     if(pos > display->height) {
       pos = 0;
-      start = line;  // update what will be screen start 
+      start = line;  // update what will be screen start
     }
     line = line->next;
     n++;
@@ -935,16 +1060,16 @@ display_goto_position(struct display* display, int nline, int column)
               nline,column,n);
     return false;
   }
-  
+
   LOG_DEBUG("display_goto_position (%d,%d)",nline,column);
-  
+
   display->start_line_ptr = start;
   display->cursor_line = nline;
   display->cursor_column = column;
   display->current_buffer->current_line = line;
   wmove(display->buffer_window,display->cursor_line,display->cursor_column);
   wrefresh(display->buffer_window);
-  
+
   return true;
 }
 
@@ -1000,7 +1125,7 @@ display_insert_backspace(struct display* display)
 
 
 /**
- * Clear the existing mode line. 
+ * Clear the existing mode line.
  */
 void
 mode_line_clear(struct display* display)
@@ -1022,7 +1147,7 @@ char*
 mode_line_input(char* prompt,
                 struct display* display)
 {
-  mode_line_clear(display);  
+  mode_line_clear(display);
   wprintw(display->mode_window,"%s",prompt);
   wrefresh(display->mode_window);
 
@@ -1041,36 +1166,6 @@ mode_line_input(char* prompt,
   return retval;
 }
 
-/**
- * Show the mode-line at the bottom of the display.
- */
-void
-mode_line_show(struct display* display)
-{
-  struct buffer* cur = display->current_buffer;
-
-  char mode_line[display->width-1];
-  snprintf(mode_line,display->width-1,
-           "-[%s name: %s, cursor:(%d,%d) len:%d num_lines:%d , mode:%s ][%d x %d] line:%s",
-           cur->modified ? "**" : " ",
-           cur->buf_name,
-           display->cursor_line,
-           display->cursor_column,
-           (int)strlen(cur->current_line->data),
-           cur->num_lines,
-           display->mode == INSERT_MODE ? "---INSERT---" : "---NAVIGATE----",
-           display->height,
-           display->width,
-           display->current_buffer->current_line->data);
-  
-  wmove(display->mode_window,0,0);
-  wprintw(display->mode_window,mode_line);
-
- int i  = strlen(mode_line);
- for(; i < display->width; i++)
-   wprintw(display->mode_window,"%c", '-');
- wrefresh(display->mode_window);
-}
 
 void
 buffer_search_free(struct buffer* buffer)
@@ -1089,22 +1184,22 @@ buffer_search_alloc(struct buffer* buffer,
 {
   if(buffer->search)
     buffer_search_free(buffer);
-  
+
   buffer->search = malloc(sizeof(struct search_state));
   buffer->search->prev_line = 0;
   buffer->search->prev_col = 0;
   buffer->search->line_number = start_line;
   buffer->search->line_column  = 0;
-  
+
   buffer->search->str = malloc(sizeof(search_term));
   strncpy(buffer->search->str,search_term,sizeof(search_term));
 }
 
 bool
 display_search(struct display* display,char* search,int current_line)
-{  
+{
   LOG_DEBUG("Search for: %s ",search);
-  
+
   struct buffer *buffer = display->current_buffer;
   buffer_search_alloc(buffer,search,current_line );
 
@@ -1120,32 +1215,40 @@ display_search(struct display* display,char* search,int current_line)
     LOG_DEBUG("Cound not find %s\n",search);
     move(display->cursor_line,display->cursor_column);
     return false;
-  }  
+  }
 
 }
 
 bool
-display_search_next(struct display* display)
+display_search_next(struct display* display, void* unused)
 {
   struct buffer* buffer = display->current_buffer;
   struct search_state* search = buffer->search;
-  
+
   if(NULL == search) {
-    display->mode = COMMAND_MODE;    
+    display->mode = COMMAND_MODE;
     return false;
   }
 
   bool found = display_search(display,search->str,search->line_number+1);
+
   if(!found) {
     display->mode = COMMAND_MODE;
     return false;
   }
-  return found;    
+  return found;
 }
 
 bool
-display_search_prev(struct display* display)
+display_search_prev(struct display* display,void* misc)
 {
+  return false;
+}
+
+bool
+display_cmd_mode(struct display* display,void* misc)
+{
+  display->mode = COMMAND_MODE;
   return false;
 }
 
@@ -1154,9 +1257,9 @@ display_init(struct buffer* buffer,int height,int width)
 {
   struct display* dis = malloc(sizeof(struct display));
   dis->cursor_column = 0;
-  dis->cursor_line = 0;
+  dis->cursor_line   = 0;
   dis->height = height;
-  dis->width = width;
+  dis->width  = width;
   dis->mode_window   = newwin(height-1,width,height-2,0);
   dis->buffer_window = newwin(height-2,width,0,0);
   dis->mode = COMMAND_MODE;
@@ -1164,16 +1267,128 @@ display_init(struct buffer* buffer,int height,int width)
   return dis;
 }
 
+struct keymap_entry {
+  char* cmd;
+  bool keymap;
+  bool (*display_cmd) (struct display* , void* );
+};
+
+struct mode {
+  char* mode_line;
+  const struct keymap_entry* keymap;
+  int num_keys;
+  bool (*default_cmd) (struct display*,void*);
+};
+
+const struct keymap_entry search_keymap[] =
+{
+ {"-",false, &display_cmd_mode},
+ {"n",false,&display_search_next},
+ {"N",false, &display_search_prev}
+};
+
+const struct keymap_entry insert_keymap[] =
+{
+ {"-", false, &display_insert_char},
+ {"n", false, &display_search_next},
+ {"N", false, &display_search_prev}
+};
+
+const struct keymap_entry command_keymap[] =
+{
+ {"-",false, &display_insert_char},
+ {"n",false, &display_search_next},
+ {"<",false, &display_pg_up_begin},
+ {">",false, &display_pg_down_begin},
+ {"o",false, &display_open_line},
+ {"j",false, &display_move_line_down},
+ {"k",false, &display_move_line_up},
+ {"l",false, &display_move_left},
+ {"h",false, &display_move_right}
+};
+
+struct mode modes[] =
+{
+ {"INSERT" ,insert_keymap,  ARRAY_SIZE(insert_keymap), &display_cmd_mode},
+ {"COMMAND",command_keymap, ARRAY_SIZE(command_keymap), &display_cmd_mode,},
+ {"SEARCH" ,search_keymap,  ARRAY_SIZE(search_keymap), &display_cmd_mode}
+};
+
+// Preserve enum display_mode ordering
+const struct keymap_entry* keymaps[] =
+  { insert_keymap,
+    command_keymap,
+    search_keymap
+  };
+
+const struct keymap_entry*
+keymap_find(const char* key,
+            const struct keymap_entry keymap[],
+            int size)
+{
+  int i = 0;
+  for(i = 0; i < size; i++) {
+    char* cmd =  keymap[i].cmd;
+    if(strcmp(key,cmd) == 0) {
+      return &(keymap[i]);
+    }
+  }
+  return NULL;
+}
+
+const struct keymap_entry*
+keymap_find_by_char(char cur,
+                    const struct keymap_entry keymap[],
+                    int size)
+{
+  char char_cmd[2];
+  sprintf(char_cmd,"%c",cur);
+  return keymap_find(char_cmd,keymap,size);
+}
+
+
+/**
+ * Show the mode-line at the bottom of the display.
+ */
+void
+mode_line_show(struct display* display)
+{
+  struct buffer* cur = display->current_buffer;
+
+  char mode_line[display->width-1];
+  snprintf(mode_line,display->width-1,
+           "-[%s name: %s, cursor:(%d,%d) len:%d num_lines:%d , mode:%s ][%d x %d] line:%s",
+           cur->modified ? "**" : " ",
+           cur->buf_name,
+           display->cursor_line,
+           display->cursor_column,
+           (int)strlen(cur->current_line->data),
+           cur->num_lines,
+           modes[display->mode].mode_line,
+           display->height,
+           display->width,
+           display->current_buffer->current_line->data);
+
+  wmove(display->mode_window,0,0);
+  wprintw(display->mode_window,mode_line);
+
+ int i  = strlen(mode_line);
+ for(; i < display->width; i++)
+   wprintw(display->mode_window,"%c", '-');
+ wrefresh(display->mode_window);
+}
+
 void
 start_display(struct buffer* buffer)
 {
   char cur;
   int height, width;
-  
+
   initscr();
   getmaxyx(stdscr, height, width);
 
-  struct display* display = display_init(buffer,height,width);
+  struct display* display =
+    display_init(buffer,height,width);
 
   // leave space for mode line
   display->height -= 2;
@@ -1182,6 +1397,7 @@ start_display(struct buffer* buffer)
   refresh();
   bool redisplay = false;
   bool quit = false;
+
 
   while(!quit) {
 
@@ -1201,152 +1417,106 @@ start_display(struct buffer* buffer)
       mode_line_show(display);
       cur = getch();
 
-      LOG_DEBUG("display_loop: received [%c] \n",cur);
 
-      // TODO need some way to nest modes
-      // creae indexes commands and key-maps
-      
+      LOG_DEBUG("display_loop: received [%c] \n",cur);
+      const struct keymap_entry* kmp = modes[display->mode].keymap;
+      const struct keymap_entry* entry =
+        keymap_find_by_char(cur,kmp, modes[display->mode].num_keys);
+
       if (display->mode == INSERT_MODE) {
         if(3 == cur) { // Ctrl-C go back ot view mode.
           redisplay = display_to_command_mode(display);
         } else if(KEY_ENTER == cur || '\n' == cur ) {
-          LOG_DEBUG("display_loop: Detected Enter in INSERT_MODE\n");
-           redisplay = display_insert_cr(display);
+          redisplay = display_insert_cr(display);
         } else if (KEY_BACKSPACE == cur  || 127 == cur || 8 == cur || cur == '\b') { // backspace or delete
           redisplay = display_insert_backspace(display);
-        } else if (10 == cur) { // Open a line
-          buffer_open_line(display->current_buffer);
-          move(display->cursor_line++,display->cursor_column);
-          redisplay = true;
-        } else {
-          buffer_insert_char(display->current_buffer, cur, display->cursor_column++);
-          move(display->cursor_line,display->cursor_column);
-          redisplay = true;
+        } else { //
+          redisplay = display_insert_char(display,&cur);
         }
         // Navigation Commands
       } else if (display->mode == SEARCH_MODE ) {
         LOG_DEBUG("Entered search mode\n");
-        if ('n' == cur) { // search forward
-           if(false == display_search_next(display)) {
-             display->mode = COMMAND_MODE;
-             continue;
-           }
 
-         } else if ('N' == cur) { // search backwards
-           display_search_prev(display);           
-         } else { // unrecognized.
-           display->mode = COMMAND_MODE;
-           continue;
-           
-         }
-         
-      } else if (3 == cur || 'q' == cur) { // quit
-        quit = true;
-        break;
-      } else if (cur == '<') {
-        display->cursor_column = 0;
-        redisplay = display_pg_up(display);
-      } else if (cur == '>'){
-        display->cursor_column = 0;
-        redisplay = display_pg_down(display);
-      } else if ('j' == cur || KEY_DOWN == cur) {
-        if(display_on_last_linep(display)) {
-          move(display->cursor_line,display->cursor_column);
-          continue;
-        }
-        if(display->cursor_line+1 >= display->height)  {
-          display->cursor_line =0;
+
+        if(NULL == entry) {
+          LOG_DEBUG("search-command found(not found):%c\n",cur);
+          display->mode = COMMAND_MODE;
           redisplay = true;
-          display_pg_down(display);
-        } else {
-          display_line_down(display);
+          //          redisplay = (kmp[0]).display_cmd(display,NULL);
+        } else  {
+          LOG_DEBUG("search-command found:%c\n",cur);
+          entry->display_cmd(display,NULL);
         }
-      } else if ('k' == cur || KEY_UP == cur) {
-        if(display_on_first_linep(display)) {
-          move(display->cursor_line,display->cursor_column);
+
+      } else if (display->mode == COMMAND_MODE) {
+
+        if(NULL !=entry) {
+          LOG_DEBUG("command-mode-command found:%c\n",cur);
+          redisplay = entry->display_cmd(display,NULL);
           continue;
+        } else if (3 == cur || 'q' == cur) { // quit
+          quit = true;
+          break;
         }
-        if(display->cursor_line - 1 < 0){
-          display_pg_up(display);
-          display->cursor_line = display->height;
+        else if ('x' == cur) {
+          buffer_delete_char(display->current_buffer,display->cursor_column);
           redisplay = true;
-        } else {
-          display_line_up(display);
-          move(--(display->cursor_line),display->cursor_column);
-        }
-      } else if ('l' == cur || KEY_RIGHT == cur) {
-         if(display->cursor_column < display->width &&
-            display->cursor_column < display->current_buffer->current_line->data_len -1) {
-           move(display->cursor_line,display->cursor_column++);
-         } else {
-           display->cursor_column = display->current_buffer->current_line->data_len;
-           move(display->cursor_line,display->cursor_column);
-         }
-      } else if ('h' == cur || KEY_LEFT == cur) {
-        if(display->cursor_column > 0) {
-          move(display->cursor_line,--(display->cursor_column));
-        } else{
-          display->cursor_column = 0;
-          move(display->cursor_line,0);
-        }
-      } else if ('x' == cur) {
-        buffer_delete_char(display->current_buffer,display->cursor_column);
-        redisplay = true;
-      } else if ('$' == cur) {
-        display_end_of_line(display);
-      } else if ('^' == cur) {
-        display_begining_of_line(display);
-      } else if ('d' == cur) {
-        if(display->start_line_ptr == display->current_buffer->current_line) {
-          // move dispaly off the curreont line
-          if(NULL != display->current_buffer->current_line->next) {
-            display->start_line_ptr = display->current_buffer->current_line->next;
-          } else {
-            display->start_line_ptr = display->current_buffer->current_line->prev;
+        } else if ('$' == cur) {
+          display_end_of_line(display);
+        } else if ('^' == cur) {
+          display_begining_of_line(display);
+        } else if ('d' == cur) {
+          if(display->start_line_ptr == display->current_buffer->current_line) {
+            // move dispaly off the curreont line
+            if(NULL != display->current_buffer->current_line->next) {
+              display->start_line_ptr = display->current_buffer->current_line->next;
+            } else {
+              display->start_line_ptr = display->current_buffer->current_line->prev;
+            }
           }
-        }
-        // now drop current line
-        buffer_delete_current_line(display->current_buffer);
-        redisplay = true;
-      } else if ('i' == cur) {
-        redisplay = display_to_insert_mode(display);
-        move(display->cursor_line,display->cursor_column);
-      } else if ('o' == cur) {
-        buffer_open_line(display->current_buffer);
-        move(display->cursor_line++,display->cursor_column);
-        redisplay = true;
-      } else if ('J' == cur) {
-        buffer_join_line(display->current_buffer);
-        move(display->cursor_line,display->cursor_column);
-        redisplay = true;
-      } else  if ('s' == cur) {
-        buffer_save(display->current_buffer);
-        move(display->cursor_line,display->cursor_column);
-      }  else if(':' == cur) { // read command
-        // TODO write command reader
-
-        char* search_term = mode_line_input(":",display);
-        if(search_term == NULL) {
+          // now drop current line
+          buffer_delete_current_line(display->current_buffer);
           redisplay = true;
-          continue;
-        }
-
-        LOG_DEBUG("read cmd: %s ",search_term);
-
-      } else if( '/' == cur || '?' == cur ) { // search command        
-        char* search_term = mode_line_input("/",display);
-
-        if(search_term == NULL) {
+        } else if ('i' == cur) {
+          redisplay = display_to_insert_mode(display);
+          move(display->cursor_line,display->cursor_column);
+        } else if ('o' == cur) {
+          buffer_open_line(display->current_buffer);
+          move(display->cursor_line++,display->cursor_column);
           redisplay = true;
-          continue;
-        }
-        //TODO search backwards
-        int start = display_line_number(display);
-        display_search(display,search_term,start);
+        } else if ('J' == cur) {
+          buffer_join_line(display->current_buffer);
+          move(display->cursor_line,display->cursor_column);
+          redisplay = true;
+        } else  if ('s' == cur) {
+          buffer_save(display->current_buffer);
+          move(display->cursor_line,display->cursor_column);
+        }  else if(':' == cur) { // read command
+          // TODO write command reader
 
-      } else {
-        // ignore unknown commands
-        move(display->cursor_line,display->cursor_column);
+          char* search_term = mode_line_input(":",display);
+          if(search_term == NULL) {
+            redisplay = true;
+            continue;
+          }
+
+          LOG_DEBUG("read cmd: %s ",search_term);
+
+        } else if( '/' == cur || '?' == cur ) { // search command
+          char* search_term = mode_line_input("/",display);
+
+          if(search_term == NULL) {
+            redisplay = true;
+            continue;
+          }
+          //TODO search backwards
+          int start = display_line_number(display);
+          display_search(display,search_term,start);
+
+        } else {
+          // ignore unknown commands
+          move(display->cursor_line,display->cursor_column);
+        }
       }
     }
   }
@@ -1369,9 +1539,10 @@ main(int argc,
   if(argc > 1)
     all_buffers->cur = buffer_open_file("x.c", argv[1]);
   else
-    all_buffers->cur = buffer_open_file("x.c", "/home/aakarsh/src/c/x/x.c");
+    all_buffers->cur = buffer_open_file("x.c",
+                                        "/home/aakarsh/src/c/x/x.c");
 
-  if(all_buffers->cur){
+  if(all_buffers->cur) {
     start_display(all_buffers->cur);
   }
 
@@ -1381,11 +1552,11 @@ main(int argc,
 }
 
 void test_line_split() {
- struct line* l = line_create("hello world");
+  struct line* l = line_create("hello world");
   l = line_split(l,6,NULL);
   assert(strcmp("world",l->data) == 0);
 }
 
 void run_tests() {
- test_line_split();
+  test_line_split();
 }
