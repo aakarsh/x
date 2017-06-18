@@ -76,7 +76,8 @@ struct buffer_list {
 enum display_mode
   { INSERT_MODE,
     COMMAND_MODE,
-    SEARCH_MODE };
+    SEARCH_MODE
+  };
 
 
 struct display {
@@ -818,11 +819,11 @@ display_to_insert_mode(struct display* display,void* misc)
 }
 
 bool
-display_to_command_mode(struct display* display)
+display_to_command_mode(struct display* display,void* misc)
 {
   display->mode = COMMAND_MODE;
   move(display->cursor_line,display->cursor_column);
-  return false;
+  return true;
 }
 
 bool
@@ -953,6 +954,17 @@ display_delete_line(struct display* display,
   return true;
 }
 
+/**
+ * Close ncurses session and quit.
+ */
+bool
+display_quit(struct display* display,
+             void* misc)
+{
+  endwin();
+  exit(1);
+}
+
 bool
 display_save(struct display* display,
              void* misc)
@@ -1025,7 +1037,7 @@ display_cursor_within_line(struct display* display)
  * Handle carriage return in insert mode.
  */
 bool
-display_insert_cr(struct display* display)
+display_insert_cr(struct display* display,void* misc)
 {
   LOG_DEBUG("called display_insert_cr line[%d] col:[%d] \n",
             display->cursor_line,display->cursor_column);
@@ -1066,6 +1078,14 @@ display_insert_char(struct display* display, void* misc)
   buffer_insert_char(display->current_buffer, *cur, display->cursor_column);
   display->cursor_column += 1;
   move(display->cursor_line,display->cursor_column);
+  return true;
+}
+
+bool
+display_bleep(struct display* display, void* misc)
+{
+  beep();
+  flash();
   return true;
 }
 
@@ -1114,7 +1134,7 @@ display_goto_position(struct display* display, int nline, int column)
  * Handle backspace or delete key
  */
 bool
-display_insert_backspace(struct display* display)
+display_insert_backspace(struct display* display,void* misc)
 {
   bool redisplay = true;
 
@@ -1287,7 +1307,7 @@ display_start_search(struct display* display,
   char* search_term = mode_line_input("/",display);
   if(search_term == NULL) {
     return true;
-  }          
+  }
   //TODO search backwards
   int start = display_line_number(display);
   display_search(display,search_term,start);
@@ -1316,6 +1336,20 @@ display_init(struct buffer* buffer,int height,int width)
   return dis;
 }
 
+
+bool
+display_run_cmd(struct display* display,void* misc)
+{
+  //TODO: command parser/handler
+  char* cmd = mode_line_input(":",display);
+  move(display->cursor_line,display->cursor_column);
+  if(cmd == NULL) {
+    return true;
+  }
+  LOG_DEBUG("read cmd: %s ",cmd);
+  return true;
+}
+
 struct keymap_entry {
   char* cmd;
   bool keymap;
@@ -1331,21 +1365,27 @@ struct mode {
 
 const struct keymap_entry search_keymap[] =
 {
- {"-",false, &display_cmd_mode},
+ {NULL,false, &display_to_command_mode},
  {"n",false,&display_search_next},
  {"N",false, &display_search_prev}
 };
 
+
+
 const struct keymap_entry insert_keymap[] =
 {
- {"-", false, &display_insert_char},
- {"n", false, &display_search_next},
- {"N", false, &display_search_prev}
+ {NULL,false, &display_insert_char},
+ {"^C",  false, &display_to_command_mode},
+ {"n" ,  false, &display_search_next},
+ {"N" ,  false, &display_search_prev},
+ {"RET",false,  &display_insert_cr},
+ {"\b", false,display_insert_backspace}
+
 };
 
 const struct keymap_entry command_keymap[] =
 {
- {"-",false, &display_insert_char},
+ {NULL,false, &display_bleep},
  {"n",false, &display_search_next},
  {"<",false, &display_pg_up_begin},
  {">",false, &display_pg_down_begin},
@@ -1362,21 +1402,24 @@ const struct keymap_entry command_keymap[] =
  {"s",false, &display_save},
  {"d",false, &display_delete_line},
  {"/",false, &display_start_search},
- {"^C",false, &display_delete_line}
+ {":", false, &display_run_cmd},
+ {"^C",false, &display_quit},
+ {"q", false, &display_quit}
 };
 
 struct mode modes[] =
 {
- {"INSERT" ,insert_keymap,  ARRAY_SIZE(insert_keymap), &display_cmd_mode},
- {"COMMAND",command_keymap, ARRAY_SIZE(command_keymap), &display_cmd_mode,},
- {"SEARCH" ,search_keymap,  ARRAY_SIZE(search_keymap), &display_cmd_mode}
+ {"INSERT" ,insert_keymap,  ARRAY_SIZE(insert_keymap),  &display_cmd_mode},
+ {"COMMAND",command_keymap, ARRAY_SIZE(command_keymap), &display_cmd_mode},
+ {"SEARCH" ,search_keymap,  ARRAY_SIZE(search_keymap),  &display_cmd_mode}
 };
 
-// Preserve enum display_mode ordering
+// preserve enum display_mode ordering
 const struct keymap_entry* keymaps[] =
-  { insert_keymap,
-    command_keymap,
-    search_keymap
+  {
+   insert_keymap,
+   command_keymap,
+   search_keymap
   };
 
 const struct keymap_entry*
@@ -1387,11 +1430,12 @@ keymap_find(const char* key,
   int i = 0;
   for(i = 0; i < size; i++) {
     char* cmd =  keymap[i].cmd;
-    if(strcmp(key,cmd) == 0) {
+    if(cmd != NULL && strcmp(key,cmd) == 0) {
       return &(keymap[i]);
     }
   }
-  return NULL;
+  // Use first entry in map as default
+  return &(keymap[0]);
 }
 
 const struct keymap_entry*
@@ -1461,70 +1505,23 @@ start_display(struct buffer* buffer)
   bool quit = false;
 
   while(!quit) {
-
     noecho();
     move(display->cursor_line,display->cursor_column);
     display_redraw(display);
     wrefresh(display->mode_window);
     wrefresh(display->buffer_window);
-
     redisplay = false;
-
     while(!redisplay) {
-
       mode_line_show(display);
       cur = getch();
-
       LOG_DEBUG("display_loop: received [%c] \n",cur);
-      const struct keymap_entry* kmp = modes[display->mode].keymap;
+      struct mode mode = modes[display->mode];
+      const struct keymap_entry* kmp = mode.keymap;
       const struct keymap_entry* entry =
-        keymap_find_by_char(cur,kmp, modes[display->mode].num_keys);
-
-      
-
-      if (display->mode == INSERT_MODE) {
-        if(3 == cur) { // Ctrl-C go back ot view mode.
-          redisplay = display_to_command_mode(display);
-        } else if(KEY_ENTER == cur || '\n' == cur ) {
-          redisplay = display_insert_cr(display);
-        } else if (KEY_BACKSPACE == cur  || 127 == cur || 8 == cur || '\b' == cur) { // backspace or delete
-          redisplay = display_insert_backspace(display);
-        } else { 
-          redisplay = display_insert_char(display,&cur);
-        }
-        // Navigation Commands
-      } else if (display->mode == SEARCH_MODE ) {
-        LOG_DEBUG("Entered search mode\n");
-        if(NULL == entry) {
-          LOG_DEBUG("search-command found(not found):%c\n",cur);
-          display->mode = COMMAND_MODE;
-          redisplay = true;
-        } else  {
-          LOG_DEBUG("search-command found:%c\n",cur);
-          entry->display_cmd(display,NULL);
-        }
-      } else if (display->mode == COMMAND_MODE) {
-        if(NULL != entry) {
-          LOG_DEBUG("command-mode-command found:%c\n",cur);
-          redisplay = entry->display_cmd(display,NULL);
-          continue;
-        } else if (3 == cur || 'q' == cur) { // quit
-          quit = true;
-          break;
-        } else if(':' == cur) { // read command
-          // TODO write command reader
-          char* search_term = mode_line_input(":",display);
-          if(search_term == NULL) {
-            redisplay = true;
-            continue;
-          }
-          LOG_DEBUG("read cmd: %s ",search_term);
-        } else {
-          // ignore unknown commands
-          LOG_DEBUG("unrecognized cmd: %c\n",cur);
-          move(display->cursor_line,display->cursor_column);
-        }
-      }
+        keymap_find_by_char(cur,kmp,mode.num_keys);
+      LOG_DEBUG("%s-command found:%c\n",
+                modes[display->mode].mode_line,cur);
+      redisplay = entry->display_cmd(display,&cur);
     }
   }
   endwin();
