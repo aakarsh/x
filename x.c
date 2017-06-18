@@ -15,7 +15,7 @@
 
 const char* log_file ="x.log";
 
-enum log_level{LOG_LEVEL_INFO, LOG_LEVEL_DEBUG};
+enum log_level { LOG_LEVEL_INFO, LOG_LEVEL_DEBUG};
 
 struct log {
   enum log_level level;
@@ -230,7 +230,6 @@ line_split(struct line* line, int split_pos, struct line** line_head)
   LOG_DEBUG( "line_split: previous line : [%s]" ,line->data);
   LOG_DEBUG( "line_split: new      line : [%s]" ,new_line->data);
 
-
   line_insert(new_line,line,line_head);
 
   return new_line;
@@ -367,51 +366,6 @@ buffer_fill_lines(struct buffer* buffer,
   buffer->num_lines = line_number;
   fclose(file);
   return 0;
-}
-
-
-
-/**
- * A primitive search forward in the buffer.
- */
-struct line*
-buffer_search_forward(struct buffer* buffer)
-{
-  char* search = buffer->search->str;
-  
-  char* found  = NULL;
-  int line_num = buffer->search->line_number;
-
-  struct line* line = NULL;  
-  for(line = buffer->lines; line != NULL; line = line->next,line_num++) {
-
-    if(line_num < buffer->search->line_number)
-      continue;
-
-    if((found= strstr(line->data,search))!= NULL)
-      break;
-  }
-  
-  if(NULL == line) {
-    LOG_DEBUG("not found!");
-    buffer->search->found = false;
-    buffer->search->prev_line = -1;
-    buffer->search->prev_col = -1;
-    return NULL;
-  }
-
-  buffer->search->prev_line = buffer->search->line_number;
-  buffer->search->prev_col = buffer->search->line_column;
-  buffer->search->line_number = line_num;
-  buffer->search->line_column = found - line->data;
-  buffer->search->found = true;
-  
-  LOG_DEBUG("Found \n[%s]\n at (line,column): (%d,%d)\n",
-            line->data,
-            buffer->search->line_number,
-            buffer->search->line_column);
-  
-  return line;
 }
 
 /**
@@ -642,6 +596,52 @@ buffer_delete_char(struct buffer* buffer,
   buffer->current_line->data_len = strlen(buffer->current_line->data);
 }
 
+/**
+ * A primitive search forward in the buffer.
+ */
+struct line*
+buffer_search_forward(struct buffer* buffer, int start_line)
+{
+  char* search = buffer->search->str;
+  int line_num = buffer->search->line_number;
+
+  struct line* line = NULL;
+  char* found  = NULL;
+
+  for(line = buffer->lines; line != NULL; line = line->next,line_num++) {
+
+    if(line_num < start_line && line_num < buffer->search->line_number)
+      continue;
+
+    if((found= strstr(line->data,search))!= NULL)
+      break;
+  }
+  
+  if(NULL == line) {
+    LOG_DEBUG("not found!");
+    buffer->search->found = false;
+    buffer->search->prev_line = -1;
+    buffer->search->prev_col = -1;
+    return NULL;
+  }
+
+  buffer->search->prev_line = buffer->search->line_number;
+  buffer->search->prev_col = buffer->search->line_column;
+  buffer->search->line_number = line_num;
+  buffer->search->line_column = found - line->data;
+  buffer->search->found = true;
+  
+  LOG_DEBUG("Found \n[%s]\n at (line,column): (%d,%d)\n",
+            line->data,
+            buffer->search->line_number,
+            buffer->search->line_column);
+  
+  return line;
+}
+
+
+
+
 void
 display_set_buffer(struct display* display,
                    struct buffer* buffer)
@@ -851,6 +851,21 @@ display_on_last_linep(struct display* display)
 }
 
 /**
+ * Recomputes the display line number may not be as efficient as
+ * keeping display line number in-sync with buffer line number.
+ */
+int 
+display_line_number(struct display* display)
+{
+  struct line* line  = display->current_buffer->current_line;
+  struct line* l  = display->start_line_ptr;
+  int nline  = 0;
+  while(l != line)
+    nline++;
+  return nline;
+}
+
+/**
  * Test that we are at the end of the current buffer's  line;
  */
 bool
@@ -1057,6 +1072,83 @@ mode_line_show(struct display* display)
  wrefresh(display->mode_window);
 }
 
+void
+buffer_search_free(struct buffer* buffer)
+{
+  if(NULL != buffer->search) {
+    free(buffer->search->str);
+    free(buffer->search);
+  }
+  buffer->search = NULL;
+}
+
+void
+buffer_search_alloc(struct buffer* buffer,
+                    char* search_term,
+                    int start_line)
+{
+  if(buffer->search)
+    buffer_search_free(buffer);
+  
+  buffer->search = malloc(sizeof(struct search_state));
+  buffer->search->prev_line = 0;
+  buffer->search->prev_col = 0;
+  buffer->search->line_number = start_line;
+  buffer->search->line_column  = 0;
+  
+  buffer->search->str = malloc(sizeof(search_term));
+  strncpy(buffer->search->str,search_term,sizeof(search_term));
+}
+
+bool
+display_search(struct display* display,char* search,int current_line)
+{  
+  LOG_DEBUG("Search for: %s ",search);
+  
+  struct buffer *buffer = display->current_buffer;
+  buffer_search_alloc(buffer,search,current_line );
+
+  bool found = buffer_search_forward(buffer,current_line);
+
+  if(display->current_buffer->search->found)  { // found search
+    struct search_state* search =  buffer->search;
+    display_goto_position(display, search->line_number, search->line_column);
+    move(display->cursor_line,display->cursor_column);
+    display->mode = SEARCH_MODE;
+    return found;
+  } else {
+    LOG_DEBUG("Cound not find %s\n",search);
+    move(display->cursor_line,display->cursor_column);
+    return false;
+  }  
+
+}
+
+bool
+display_search_next(struct display* display)
+{
+  struct buffer* buffer = display->current_buffer;
+  struct search_state* search = buffer->search;
+  
+  if(NULL == search) {
+    display->mode = COMMAND_MODE;    
+    return false;
+  }
+
+  bool found = display_search(display,search->str,search->line_number+1);
+  if(!found) {
+    display->mode = COMMAND_MODE;
+    return false;
+  }
+  return found;    
+}
+
+bool
+display_search_prev(struct display* display)
+{
+  return false;
+}
+
 struct display*
 display_init(struct buffer* buffer,int height,int width)
 {
@@ -1115,9 +1207,6 @@ start_display(struct buffer* buffer)
       // creae indexes commands and key-maps
       
       if (display->mode == INSERT_MODE) {
-        //if(strcmp("^R", key_name(cur)) == 0){
-        //LOG_DEBUG("display_loop : Detected Ctrl-R");
-          //        }else
         if(3 == cur) { // Ctrl-C go back ot view mode.
           redisplay = display_to_command_mode(display);
         } else if(KEY_ENTER == cur || '\n' == cur ) {
@@ -1135,14 +1224,19 @@ start_display(struct buffer* buffer)
           redisplay = true;
         }
         // Navigation Commands
-      } if (display->mode == SEARCH_MODE ){
-         if (3 == cur || 'q' == cur) { // search quit
-           display->mode = COMMAND_MODE;
-         } else if ('n' == cur) { // search forward
-           
+      } else if (display->mode == SEARCH_MODE ) {
+        LOG_DEBUG("Entered search mode\n");
+        if ('n' == cur) { // search forward
+           if(false == display_search_next(display)) {
+             display->mode = COMMAND_MODE;
+             continue;
+           }
+
          } else if ('N' == cur) { // search backwards
-           
+           display_search_prev(display);           
          } else { // unrecognized.
+           display->mode = COMMAND_MODE;
+           continue;
            
          }
          
@@ -1229,48 +1323,26 @@ start_display(struct buffer* buffer)
         buffer_save(display->current_buffer);
         move(display->cursor_line,display->cursor_column);
       }  else if(':' == cur) { // read command
-        // TODO Write Command Reader
+        // TODO write command reader
 
         char* search_term = mode_line_input(":",display);
         if(search_term == NULL) {
           redisplay = true;
           continue;
         }
+
         LOG_DEBUG("read cmd: %s ",search_term);
-      } else if( '/' == cur || '?' == cur ) { // search command
-        
+
+      } else if( '/' == cur || '?' == cur ) { // search command        
         char* search_term = mode_line_input("/",display);
 
         if(search_term == NULL) {
           redisplay = true;
           continue;
         }
-        
-        LOG_DEBUG("Search for: %s ",search_term);
-
-        struct buffer *buffer = display->current_buffer;
-        
-        if(NULL != buffer->search) {
-          free(buffer->search->str);
-          free(buffer->search);
-        }
-
-        buffer->search = malloc(sizeof(struct search_state));
-
-
-        // search from beginning for now
-        buffer->search->prev_line = 0;
-        buffer->search->prev_col = 0;
-        buffer->search->str = malloc(sizeof(search_term));
-        strncpy(buffer->search->str,search_term,sizeof(search_term));
-
-        redisplay = buffer_search_forward(display->current_buffer);
-        
-        if(display->current_buffer->search->found)  { // found search
-          struct search_state* search =  display->current_buffer->search;
-          redisplay = display_goto_position(display, search->line_number, search->line_column);
-          move(display->cursor_line,display->cursor_column);
-        }
+        //TODO search backwards
+        int start = display_line_number(display);
+        display_search(display,search_term,start);
 
       } else {
         // ignore unknown commands
@@ -1312,7 +1384,6 @@ void test_line_split() {
  struct line* l = line_create("hello world");
   l = line_split(l,6,NULL);
   assert(strcmp("world",l->data) == 0);
-
 }
 
 void run_tests() {
