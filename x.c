@@ -38,10 +38,13 @@ struct search_state {
   int prev_line;
   int prev_col;
   char* str;
+  
   /** Buffer searching */
-  int found;
- struct line* found_line;
-
+  bool found;
+  int line_number;
+  int line_column;
+  
+  struct line* found_line;  
 };
 
 /**
@@ -374,6 +377,7 @@ struct line*
 buffer_search_forward(struct buffer* buffer)
 {
   char* search = buffer->search->str;
+  
   char* found  = NULL;
   int line_num = 0;
 
@@ -389,14 +393,22 @@ buffer_search_forward(struct buffer* buffer)
   
   if(NULL == line) {
     LOG_DEBUG("not found!");
+    buffer->search->found = false;
+    buffer->search->prev_line = -1;
+    buffer->search->prev_col = -1;
     return NULL;
   }
 
-  int search_line = line_num;
-  int search_column = found - line->data;
-
+  buffer->search->prev_line = buffer->search->line_number;
+  buffer->search->prev_col = buffer->search->line_column;
+  buffer->search->line_number = line_num;
+  buffer->search->line_column = found - line->data;
+  buffer->search->found = true;
+  
   LOG_DEBUG("Found \n[%s]\n at (line,column): (%d,%d)\n",
-            line->data,search_line,search_column);
+            line->data,
+            buffer->search->line_number,
+            buffer->search->line_column);
   
   return line;
 }
@@ -879,6 +891,46 @@ display_startlinep(struct display* display)
   return display->start_line_ptr == display->current_buffer->current_line;
 }
 
+/**
+ * Moves cursor to a particular line or column in the buffer. If the
+ * line lies out of current sceen. Scrolls the buffer so that the
+ * matching line shows on the last line of column 
+ */
+bool
+display_goto_position(struct display* display, int nline, int column)
+{
+  struct line* line = display->current_buffer->lines;
+  struct line* start = line;
+
+  int n = 0;
+  int pos = 0;
+
+  while(n < nline && NULL != line ) {
+    if(pos > display->height) {
+      pos = 0;
+      start = line;  // update what will be screen start 
+    }
+    line = line->next;
+    n++;
+  }
+
+  if(NULL == line) {
+    LOG_DEBUG("display_goto_position: (%d,%d) is out of bounds, max :%d",
+              nline,column,n);
+    return false;
+  }
+  
+  LOG_DEBUG("display_goto_position (%d,%d)",nline,column);
+  
+  display->start_line_ptr = start;
+  display->cursor_line = nline;
+  display->cursor_column = column;
+  
+  wmove(display->buffer_window,display->cursor_line,display->cursor_column);
+  wrefresh(display->buffer_window);
+  
+  return true;
+}
 
 /**
  * Handle backspace or delete key
@@ -1091,7 +1143,7 @@ start_display(struct buffer* buffer)
       } else if (cur == '>'){
         display->cursor_column = 0;
         redisplay = display_pg_down(display);
-      } else if ('j' == cur) {
+      } else if ('j' == cur || KEY_DOWN == cur) {
         if(display_on_last_linep(display)) {
           move(display->cursor_line,display->cursor_column);
           continue;
@@ -1103,7 +1155,7 @@ start_display(struct buffer* buffer)
         } else {
           display_line_down(display);
         }
-      } else if ('k' == cur) {
+      } else if ('k' == cur || KEY_UP == cur) {
         if(display_on_first_linep(display)) {
           move(display->cursor_line,display->cursor_column);
           continue;
@@ -1116,7 +1168,7 @@ start_display(struct buffer* buffer)
           display_line_up(display);
           move(--(display->cursor_line),display->cursor_column);
         }
-      } else if ('l' == cur) {
+      } else if ('l' == cur || KEY_RIGHT == cur) {
          if(display->cursor_column < display->width &&
             display->cursor_column < display->current_buffer->current_line->data_len -1) {
            move(display->cursor_line,display->cursor_column++);
@@ -1124,7 +1176,7 @@ start_display(struct buffer* buffer)
            display->cursor_column = display->current_buffer->current_line->data_len;
            move(display->cursor_line,display->cursor_column);
          }
-      } else if ('h' == cur) {
+      } else if ('h' == cur || KEY_LEFT == cur) {
         if(display->cursor_column > 0) {
           move(display->cursor_line,--(display->cursor_column));
         } else{
@@ -1173,22 +1225,26 @@ start_display(struct buffer* buffer)
           continue;
         }
         LOG_DEBUG("read cmd: %s ",search_term);
-      } else if( '/' == cur) { // search command
+      } else if( '/' == cur || '?' == cur ) { // search command
+        
         char* search_term = mode_line_input("/",display);
+        
         if(search_term == NULL) {
           redisplay = true;
           continue;
         }
+        
         LOG_DEBUG("Search for: %s ",search_term);
 
-
         struct buffer *buffer = display->current_buffer;
+        
         if(NULL != buffer->search) {
           free(buffer->search->str);
           free(buffer->search);
         }
 
         buffer->search = malloc(strlen(search_term)+1);
+
         // search from beginning for now
         buffer->search->prev_line = 0;
         buffer->search->prev_col = 0;
@@ -1196,7 +1252,12 @@ start_display(struct buffer* buffer)
         strncpy(buffer->search->str,search_term,sizeof(search_term));
 
         redisplay = buffer_search_forward(display->current_buffer);
-        move(display->cursor_line,display->cursor_column);
+        
+        if(display->current_buffer->search->found)  { // found search
+          struct search_state* search =  display->current_buffer->search;
+          redisplay = display_goto_position(display, search->line_number, search->line_column);
+          //          move(display->cursor_line,display->cursor_column);
+        }
 
       } else {
         // ignore unknown commands
