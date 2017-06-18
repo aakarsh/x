@@ -289,8 +289,7 @@ buffer_alloc(char* buffer_name)
  * field.
  */
 struct line*
-buffer_find_line(struct buffer* b,
-                 int num)
+buffer_find_line(struct buffer* b, int num)
 {
 
   if(num <= 0) { // go to begining of buffer
@@ -1059,7 +1058,9 @@ start_display(struct buffer* buffer)
 
       LOG_DEBUG("display_loop: received [%c] \n",cur);
 
-
+      // TODO need some way to nest modes
+      // creae indexes commands and key-maps
+      
       if (display->mode == INSERT_MODE) {
         //if(strcmp("^R", key_name(cur)) == 0){
         //LOG_DEBUG("display_loop : Detected Ctrl-R");
@@ -1186,6 +1187,7 @@ start_display(struct buffer* buffer)
           free(buffer->search->str);
           free(buffer->search);
         }
+
         buffer->search = malloc(strlen(search_term)+1);
         // search from beginning for now
         buffer->search->prev_line = 0;
