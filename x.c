@@ -640,7 +640,9 @@ display_set_buffer(struct display* display,
   buffer->current_line = display->start_line_ptr;
 }
 
-inline void display_line_up(struct display * display) {
+void 
+display_line_up(struct display * display) 
+{
   if(display->current_buffer == NULL)
     return;
 
@@ -652,7 +654,9 @@ inline void display_line_up(struct display * display) {
   current_buffer->current_line = current_buffer->current_line->prev;
 }
 
-bool display_line_down(struct display * display) {
+bool
+display_line_down(struct display * display)
+{
 
   if(display->current_buffer == NULL)
     return false;
@@ -679,7 +683,8 @@ bool display_line_down(struct display * display) {
  * Starting with current line, return pointer to starting line of next
  * page, where page will be number of lines to keep on the page.
  */
-bool display_pg_down(struct display * display)
+bool
+display_pg_down(struct display * display)
 {
   // Using display height as page size
   long pg_size = display->height;
@@ -708,7 +713,8 @@ bool display_pg_down(struct display * display)
  * Starting with current line, return pointer to starting line of next
  * page, where page will be number of lines to keep on the page.
  */
-bool display_pg_up(struct display * display)
+bool
+display_pg_up(struct display * display)
 {
   // Using display height as page size
   long pg_size = display->height;
@@ -737,7 +743,8 @@ bool display_pg_up(struct display * display)
 /**
  * return - Value will indicate whether full redisplay is required.
  */
-bool display_end_of_line(struct display* display)
+bool
+display_end_of_line(struct display* display)
 {
   struct buffer* buffer = display->current_buffer;
   struct line* line = buffer->current_line;
@@ -749,7 +756,8 @@ bool display_end_of_line(struct display* display)
   return false;
 }
 
-bool display_begining_of_line(struct display* display)
+bool
+display_begining_of_line(struct display* display)
 {
   display->cursor_column = 0;
   wmove(display->buffer_window,display->cursor_line,display->cursor_column);
@@ -758,8 +766,9 @@ bool display_begining_of_line(struct display* display)
   return false;
 }
 
-void display_redraw(struct display* display) {
-
+void
+display_redraw(struct display* display)
+{
   LOG_DEBUG("Called: display_redraw \n");
 
   if(display->buffer_window == NULL) {
@@ -784,21 +793,24 @@ void display_redraw(struct display* display) {
   }
 }
 
-bool display_to_insert_mode(struct display* display)
+bool
+display_to_insert_mode(struct display* display)
 {
   display->mode = INSERT_MODE;
   move(display->cursor_line,display->cursor_column);
   return false;
 }
 
-bool display_to_command_mode(struct display* display)
+bool
+display_to_command_mode(struct display* display)
 {
   display->mode = COMMAND_MODE;
   move(display->cursor_line,display->cursor_column);
   return false;
 }
 
-bool display_empty_linep(struct display* display)
+bool
+display_empty_linep(struct display* display)
 {
   return strlen(display->current_buffer->current_line->data) >= 2;
 }
@@ -806,16 +818,22 @@ bool display_empty_linep(struct display* display)
 /**
  * At the begining of the buffer's cursor.
  */
-bool display_cursor_bolp(struct display* display) {
+bool
+display_cursor_bolp(struct display* display)
+{
   return display->cursor_column <= 0;
 }
 
-bool display_on_first_linep(struct display* display) {
+bool
+display_on_first_linep(struct display* display)
+{
   struct buffer* buffer = display->current_buffer;
   return buffer->current_line == buffer->lines;
 }
 
-bool display_on_last_linep(struct display* display) {
+bool
+display_on_last_linep(struct display* display)
+{
   struct buffer* buffer = display->current_buffer;
   return buffer->current_line->next == NULL;
 }
@@ -823,12 +841,16 @@ bool display_on_last_linep(struct display* display) {
 /**
  * Test that we are at the end of the current buffer's  line;
  */
-bool display_cursor_eolp(struct display* display) {
+bool
+display_cursor_eolp(struct display* display)
+{
   int last_postion = display->current_buffer->current_line->data_len;
   return display->cursor_column == last_postion;
 }
 
-bool display_cursor_within_line(struct display* display) {
+bool
+display_cursor_within_line(struct display* display)
+{
   int last_postion = display->current_buffer->current_line->data_len;
   return display->cursor_column >=0  && display->cursor_column <= last_postion;
 }
@@ -836,20 +858,25 @@ bool display_cursor_within_line(struct display* display) {
 /**
  * Handle carriage return in insert mode.
  */
-bool display_insert_cr(struct display* display) {
-
-  LOG_DEBUG("called display_insert_cr line[%d] col:[%d] \n",display->cursor_line,display->cursor_column);
-
+bool
+display_insert_cr(struct display* display)
+{
+  LOG_DEBUG("called display_insert_cr line[%d] col:[%d] \n",
+            display->cursor_line,display->cursor_column);
+  
   if(buffer_split_line(display->current_buffer,display->cursor_column)) {
     display->cursor_column =0;
     display->cursor_line +=1;
     move(display->cursor_line,display->cursor_column);
   }
+  
   LOG_DEBUG("display_insert_cr line [%d] col:[%d] \n",display->cursor_line,display->cursor_column);
   return true;
 }
 
-bool display_startlinep(struct display* display) {
+bool
+display_startlinep(struct display* display)
+{
   return display->start_line_ptr == display->current_buffer->current_line;
 }
 
@@ -857,7 +884,9 @@ bool display_startlinep(struct display* display) {
 /**
  * Handle backspace or delete key
  */
-bool display_insert_backspace(struct display* display) {
+bool
+display_insert_backspace(struct display* display)
+{
   bool redisplay = true;
 
   if(!display_cursor_bolp(display)) { // if not begining of the line
@@ -991,7 +1020,9 @@ display_init(struct buffer* buffer,int height,int width)
   return dis;
 }
 
-void start_display(struct buffer* buffer) {
+void
+start_display(struct buffer* buffer)
+{
   char cur;
   int height, width;
   
@@ -1177,7 +1208,10 @@ void start_display(struct buffer* buffer) {
 
 void run_tests();
 
-int main(int argc, char* argv[]){
+int
+main(int argc,
+     char* argv[])
+{
 
   XLOG = logging_init();
 
