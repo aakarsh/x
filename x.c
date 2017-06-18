@@ -73,7 +73,7 @@ struct buffer_list {
   struct buffer* cur;
 };
 
-enum display_mode { INSERT_MODE,COMMAND_MODE };
+enum display_mode { INSERT_MODE,COMMAND_MODE,SEARCH_MODE };
 
 struct display{
   int height;
@@ -370,6 +370,7 @@ buffer_fill_lines(struct buffer* buffer,
 }
 
 
+
 /**
  * A primitive search forward in the buffer.
  */
@@ -379,12 +380,12 @@ buffer_search_forward(struct buffer* buffer)
   char* search = buffer->search->str;
   
   char* found  = NULL;
-  int line_num = 0;
+  int line_num = buffer->search->line_number;
 
   struct line* line = NULL;  
   for(line = buffer->lines; line != NULL; line = line->next,line_num++) {
 
-    if(line_num < buffer->search->prev_line)
+    if(line_num < buffer->search->line_number)
       continue;
 
     if((found= strstr(line->data,search))!= NULL)
@@ -925,7 +926,7 @@ display_goto_position(struct display* display, int nline, int column)
   display->start_line_ptr = start;
   display->cursor_line = nline;
   display->cursor_column = column;
-  
+  display->current_buffer->current_line = line;
   wmove(display->buffer_window,display->cursor_line,display->cursor_column);
   wrefresh(display->buffer_window);
   
@@ -1134,6 +1135,17 @@ start_display(struct buffer* buffer)
           redisplay = true;
         }
         // Navigation Commands
+      } if (display->mode == SEARCH_MODE ){
+         if (3 == cur || 'q' == cur) { // search quit
+           display->mode = COMMAND_MODE;
+         } else if ('n' == cur) { // search forward
+           
+         } else if ('N' == cur) { // search backwards
+           
+         } else { // unrecognized.
+           
+         }
+         
       } else if (3 == cur || 'q' == cur) { // quit
         quit = true;
         break;
@@ -1228,7 +1240,7 @@ start_display(struct buffer* buffer)
       } else if( '/' == cur || '?' == cur ) { // search command
         
         char* search_term = mode_line_input("/",display);
-        
+
         if(search_term == NULL) {
           redisplay = true;
           continue;
@@ -1243,7 +1255,8 @@ start_display(struct buffer* buffer)
           free(buffer->search);
         }
 
-        buffer->search = malloc(strlen(search_term)+1);
+        buffer->search = malloc(sizeof(struct search_state));
+
 
         // search from beginning for now
         buffer->search->prev_line = 0;
@@ -1256,7 +1269,7 @@ start_display(struct buffer* buffer)
         if(display->current_buffer->search->found)  { // found search
           struct search_state* search =  display->current_buffer->search;
           redisplay = display_goto_position(display, search->line_number, search->line_column);
-          //          move(display->cursor_line,display->cursor_column);
+          move(display->cursor_line,display->cursor_column);
         }
 
       } else {
