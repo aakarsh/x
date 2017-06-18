@@ -104,7 +104,6 @@ struct log* XLOG;
     }                                           \
   } while(0);
 
-
 struct log*
 logging_init()
 {
@@ -385,7 +384,6 @@ buffer_fill_lines(struct buffer* buffer,
 void
 buffer_save(struct buffer* buffer)
 {
-
   if(NULL == buffer->filepath) {
     return;
   }
@@ -473,7 +471,6 @@ buffer_insert_char(struct buffer* buffer,
   buffer->current_line->data = modified_line;
   buffer->current_line->data_len++;
 }
-
 
 /**
  * Insert a new line into the buffer at the current line postion
@@ -571,7 +568,6 @@ buffer_join_line(struct buffer* buffer)
     free(line_data);
 }
 
-
 /**
  * Delete the character at postion speicfied in the current line. Will
  * not overwrite the last newline character.
@@ -649,9 +645,6 @@ buffer_search_forward(struct buffer* buffer,
 
   return line;
 }
-
-
-
 
 void
 display_set_buffer(struct display* display,
@@ -960,8 +953,6 @@ display_delete_line(struct display* display,
   return true;
 }
 
-
-
 bool
 display_save(struct display* display,
              void* misc)
@@ -970,8 +961,6 @@ display_save(struct display* display,
   move(display->cursor_line,display->cursor_column);
   return false;
 }
-
-        
 
 void
 display_redraw(struct display* display)
@@ -993,13 +982,12 @@ display_redraw(struct display* display)
     start_line_ptr = start_line_ptr->next;
     i++;
   }
-
+  wprintw(display->buffer_window,"\n");
   // fill rest of screen with blanks
   for(; i < display->height-1; i++) {
     wprintw(display->buffer_window,"~\n");
   }
 }
-
 
 /**
  * Recomputes the display line number may not be as efficient as
@@ -1168,10 +1156,8 @@ display_insert_backspace(struct display* display)
     redisplay =true;
 
   }
-
   return redisplay;
 }
-
 
 /**
  * Clear the existing mode line.
@@ -1214,7 +1200,6 @@ mode_line_input(char* prompt,
 
   return retval;
 }
-
 
 void
 buffer_search_free(struct buffer* buffer)
@@ -1376,8 +1361,8 @@ const struct keymap_entry command_keymap[] =
  {"x",false, &display_delete_char},
  {"s",false, &display_save},
  {"d",false, &display_delete_line},
- {"/",false, &display_start_search} 
-
+ {"/",false, &display_start_search},
+ {"^C",false, &display_delete_line}
 };
 
 struct mode modes[] =
@@ -1414,11 +1399,18 @@ keymap_find_by_char(char cur,
                     const struct keymap_entry keymap[],
                     int size)
 {
-  char char_cmd[2];
-  sprintf(char_cmd,"%c",cur);
+  char char_cmd[5];
+  if (3 == cur) {
+    sprintf(char_cmd,"%s","^C");
+  } else if (KEY_ENTER == cur || '\n' == cur) {
+    sprintf(char_cmd,"%s","RET");
+  } else if (KEY_BACKSPACE == cur  || 127 == cur || 8 == cur || '\b' == cur){
+    sprintf(char_cmd,"%s","\b");
+  } else {
+    sprintf(char_cmd,"%c",cur);
+  }
   return keymap_find(char_cmd,keymap,size);
 }
-
 
 /**
  * Show the mode-line at the bottom of the display.
@@ -1445,9 +1437,6 @@ mode_line_show(struct display* display)
   wmove(display->mode_window,0,0);
   wprintw(display->mode_window,mode_line);
 
- int i  = strlen(mode_line);
- for(; i < display->width; i++)
-   wprintw(display->mode_window,"%c", '-');
  wrefresh(display->mode_window);
 }
 
@@ -1491,12 +1480,14 @@ start_display(struct buffer* buffer)
       const struct keymap_entry* entry =
         keymap_find_by_char(cur,kmp, modes[display->mode].num_keys);
 
+      
+
       if (display->mode == INSERT_MODE) {
         if(3 == cur) { // Ctrl-C go back ot view mode.
           redisplay = display_to_command_mode(display);
         } else if(KEY_ENTER == cur || '\n' == cur ) {
           redisplay = display_insert_cr(display);
-        } else if (KEY_BACKSPACE == cur  || 127 == cur || 8 == cur || cur == '\b') { // backspace or delete
+        } else if (KEY_BACKSPACE == cur  || 127 == cur || 8 == cur || '\b' == cur) { // backspace or delete
           redisplay = display_insert_backspace(display);
         } else { 
           redisplay = display_insert_char(display,&cur);
@@ -1538,9 +1529,6 @@ start_display(struct buffer* buffer)
   }
   endwin();
 }
-
-
-void run_tests();
 
 int
 main(int argc,
