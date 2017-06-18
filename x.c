@@ -35,7 +35,8 @@ struct line {
 };
 
 struct search_state {
-  int last_pos;
+  int prev_line;
+  int prev_col;
   char* str;
   /** Buffer searching */
   int found;
@@ -66,7 +67,7 @@ struct buffer {
 struct buffer_list {
   struct buffer_list* next;
   int num_buffers;
-  struct buffer* cur;  
+  struct buffer* cur;
 };
 
 enum display_mode { INSERT_MODE,COMMAND_MODE };
@@ -257,7 +258,6 @@ line_unlink(struct line* line, struct line** line_head)
     }
 
   }
-
   return line;
 }
 
@@ -289,23 +289,24 @@ buffer_alloc(char* buffer_name)
  * field.
  */
 struct line*
-buffer_find_line(struct buffer* buffer, int line_number)
+buffer_find_line(struct buffer* b,
+                 int num)
 {
 
-  if(line_number <= 0) { // go to begining of buffer
-    line_number = 0;
+  if(num <= 0) { // go to begining of buffer
+    num = 0;
   }
 
-  if(line_number > buffer->num_lines) {
-    line_number = buffer->num_lines-1;
+  if(num > b->num_lines) {
+    num = b->num_lines-1;
   }
 
-  int cur_line = 0;
+  int cnt = 0;
 
-  struct line* cur = buffer->lines;
-  while(cur!= NULL && cur_line < line_number){
+  struct line* cur = b->lines;
+  while(cur!= NULL && cnt < num){
     cur = cur->next;
-    cur_line++;
+    cnt++;
   }
   return cur;
 }
@@ -366,20 +367,39 @@ buffer_fill_lines(struct buffer* buffer,
   return 0;
 }
 
+
+/**
+ * A primitive search forward in the buffer.
+ */
 struct line*
-buffer_search_forward(struct buffer* buffer) {
-  struct line* line = buffer->lines;
+buffer_search_forward(struct buffer* buffer)
+{
   char* search = buffer->search->str;
-  char* found = NULL;
-  
-  for(; line!=NULL;line = line->next)
+  char* found  = NULL;
+  int line_num = 0;
+
+  struct line* line = NULL;  
+  for(line = buffer->lines; line != NULL; line = line->next,line_num++) {
+
+    if(line_num < buffer->search->prev_line)
+      continue;
+
     if((found= strstr(line->data,search))!= NULL)
       break;
+  }
   
-  if(line!=NULL)
-    return line;
+  if(NULL == line) {
+    LOG_DEBUG("not found!");
+    return NULL;
+  }
+
+  int search_line = line_num;
+  int search_column = found - line->data;
+
+  LOG_DEBUG("Found \n[%s]\n at (line,column): (%d,%d)\n",
+            line->data,search_line,search_column);
   
-  return NULL;
+  return line;
 }
 
 /**
@@ -403,7 +423,7 @@ buffer_save(struct buffer* buffer)
 
   struct line* line  = buffer->lines;
   while( NULL != line ) {
-    // recompute to be sure of line length
+    // recompute to be sure of line-length
     long line_len  = strlen(line->data);
     if(line_len > 0) {
       fwrite(line->data,line_len,sizeof(char),savefile);
@@ -412,8 +432,8 @@ buffer_save(struct buffer* buffer)
   }
   fclose(savefile);
   buffer->modified = false;
-
 }
+
 /**
  * Opens a file given by file path
  */
@@ -464,8 +484,9 @@ buffer_insert_char(struct buffer* buffer,
   if(modified_line == NULL) // data is left unmodified by realloc
     return;
 
-  // shift modified right from the insert position
-  // we start from the position of `\0 at len_line+1 and move and it to len_line
+  // shift modified right from the insert position we start from the
+  // position of `\0 at len_line+1 and move and it to len_line
+
   int last_postion = len_line+1;
   int i = last_postion;
   for(;i > insert_position ; i--)
@@ -568,7 +589,7 @@ buffer_join_line(struct buffer* buffer)
   buffer->current_line = line_prev;
 
   char* line_data = line->data;
-  
+
   free(line);
   if(line_data)
     free(line_data);
@@ -883,17 +904,58 @@ bool display_insert_backspace(struct display* display) {
 
 
 /**
+ * Clear the existing mode line. 
+ */
+void
+mode_line_clear(struct display* display)
+{
+  wmove(display->mode_window,0,0);
+  LOG_DEBUG("display-width :%d\n", display->width);
+  int i =0;
+  for(i = 0; i  <  display->width - 1; i++) {
+    wprintw(display->mode_window," ");
+  }
+  wmove(display->mode_window,0,0);
+  wrefresh(display->mode_window);
+}
+
+/**
+ * Get user input commands
+ */
+char*
+mode_line_input(char* prompt,
+                struct display* display)
+{
+  mode_line_clear(display);  
+  wprintw(display->mode_window,"%s",prompt);
+  wrefresh(display->mode_window);
+
+  char user_input[1024];
+
+  move(display->height, 1);
+  echo();
+  getstr(user_input);
+  noecho();
+
+  int len = strlen(user_input);
+  char* retval = malloc((len+1)*sizeof(char));
+  strncpy(retval,user_input,len);
+  retval[len] = '\0';
+
+  return retval;
+}
+
+/**
  * Show the mode-line at the bottom of the display.
  */
-void mode_line_show(struct display* display) {
-  if(display->mode_window == NULL)
-    display->mode_window = newwin(display->height+1,display->width,display->height,0);
-
-  wmove(display->mode_window,0,0);
+void
+mode_line_show(struct display* display)
+{
   struct buffer* cur = display->current_buffer;
 
-  char mode_line[1024];
-  snprintf(mode_line,1024,"-[%s name: %s, cursor:(%d,%d) len:%d num_lines:%d , mode:%s ][%d x %d] line:%s",
+  char mode_line[display->width-1];
+  snprintf(mode_line,display->width-1,
+           "-[%s name: %s, cursor:(%d,%d) len:%d num_lines:%d , mode:%s ][%d x %d] line:%s",
            cur->modified ? "**" : " ",
            cur->buf_name,
            display->cursor_line,
@@ -904,7 +966,8 @@ void mode_line_show(struct display* display) {
            display->height,
            display->width,
            display->current_buffer->current_line->data);
-
+  
+  wmove(display->mode_window,0,0);
   wprintw(display->mode_window,mode_line);
 
  int i  = strlen(mode_line);
@@ -913,28 +976,32 @@ void mode_line_show(struct display* display) {
  wrefresh(display->mode_window);
 }
 
-struct display*  display_init(struct buffer* buffer) {
-  struct display* display = malloc(sizeof(struct display));
-  display->cursor_column = 0;
-  display->cursor_line = 0;
-  display->mode_window = NULL;
-  display->buffer_window = NULL;
-  display->mode = COMMAND_MODE;
-  display_set_buffer(display, buffer);
-
-
-  return display;
+struct display*
+display_init(struct buffer* buffer,int height,int width)
+{
+  struct display* dis = malloc(sizeof(struct display));
+  dis->cursor_column = 0;
+  dis->cursor_line = 0;
+  dis->height = height;
+  dis->width = width;
+  dis->mode_window   = newwin(height-1,width,height-2,0);
+  dis->buffer_window = newwin(height-2,width,0,0);
+  dis->mode = COMMAND_MODE;
+  display_set_buffer(dis, buffer);
+  return dis;
 }
 
 void start_display(struct buffer* buffer) {
-
-  struct display* display = display_init(buffer);
   char cur;
-
+  int height, width;
+  
   initscr();
-  getmaxyx(stdscr, display->height, display->width);
+  getmaxyx(stdscr, height, width);
+
+  struct display* display = display_init(buffer,height,width);
+
   // leave space for mode line
-  display->height-=2;
+  display->height -= 2;
 
   raw();
   refresh();
@@ -1067,23 +1134,37 @@ void start_display(struct buffer* buffer) {
         move(display->cursor_line,display->cursor_column);
       }  else if(':' == cur) { // read command
         // TODO Write Command Reader
+
+        char* search_term = mode_line_input(":",display);
+        if(search_term == NULL) {
+          redisplay = true;
+          continue;
+        }
+        LOG_DEBUG("read cmd: %s ",search_term);
       } else if( '/' == cur) { // search command
-        /**
+        char* search_term = mode_line_input("/",display);
+        if(search_term == NULL) {
+          redisplay = true;
+          continue;
+        }
+        LOG_DEBUG("Search for: %s ",search_term);
+
+
         struct buffer *buffer = display->current_buffer;
-        char search_term[]="foo";
         if(NULL != buffer->search) {
           free(buffer->search->str);
           free(buffer->search);
-        }        
-        buffer->search = malloc(sizeof(struct search_state));
+        }
+        buffer->search = malloc(strlen(search_term)+1);
         // search from beginning for now
-        buffer->search->last_pos = 0;
-        buffer->search->str = malloc(sizeof(search_term));        
+        buffer->search->prev_line = 0;
+        buffer->search->prev_col = 0;
+        buffer->search->str = malloc(sizeof(search_term));
         strncpy(buffer->search->str,search_term,sizeof(search_term));
-        
+
         redisplay = buffer_search_forward(display->current_buffer);
         move(display->cursor_line,display->cursor_column);
-        */
+
       } else {
         // ignore unknown commands
         move(display->cursor_line,display->cursor_column);
