@@ -13,6 +13,7 @@
 
 #define ARRAY_SIZE(x) ((sizeof x) / (sizeof *x))
 
+char* xstrcpy(char* str);
 const char* log_file ="x.log";
 
 enum log_level { LOG_LEVEL_INFO, LOG_LEVEL_DEBUG};
@@ -139,9 +140,7 @@ line_create(char* data)
    newline->line_number = -1;
    newline->file_position = -1;
    long length = strlen(data);
-   newline->data = malloc((sizeof(char)*length) +1) ;
-   strncpy(newline->data,data,length);
-   newline->data[length] ='\0';
+   newline->data = xstrcpy(data);
    newline->data_len = length;
    return newline;
 }
@@ -284,13 +283,11 @@ buffer_list_create()
 }
 
 struct buffer*
-buffer_alloc(char* buffer_name)
+buffer_create(char* buffer_name)
 {
   struct buffer* buffer = malloc(sizeof(struct buffer));
   buffer->search = NULL;
-  int len = strlen(buffer_name);
-  buffer->buf_name = (char*) malloc((len+1)*sizeof(char));
-  strncpy(buffer->buf_name,buffer_name,len);
+  buffer->buf_name = xstrcpy(buffer_name);
   return buffer;
 }
 
@@ -326,13 +323,11 @@ buffer_find_line(struct buffer* b,
  */
 int
 buffer_fill_lines(struct buffer* buffer,
-                  const char* file_name)
+                  FILE* file,
+                  long offset)  
+
 {
-  FILE* file =  fopen(file_name,"r");
-  if(file == NULL) {
-    return errno;
-  }
-  fseek(file,0,0);
+  fseek(file,offset,0);
 
   ssize_t read;
   size_t len = 0;
@@ -349,10 +344,11 @@ buffer_fill_lines(struct buffer* buffer,
   while((read = getline(&line,&len,file)) != -1) {
 
     struct line* cur_line = malloc(sizeof(struct line));
+    
     cur_line->prev = NULL;
     cur_line->next = NULL;
 
-    if(prev_line!=NULL) {
+    if(prev_line != NULL) {
       prev_line->next = cur_line;
       cur_line->prev = prev_line;
     }
@@ -408,28 +404,37 @@ buffer_save(struct buffer* buffer)
   buffer->modified = false;
 }
 
+
+
+
 /**
  * Opens a file given by file path
  */
 struct buffer*
 buffer_open_file(char* buffer_name,
-                 char* file_path)
+                 char* path)
 {
   struct stat file_stat;
 
-  if(0 == stat(file_path, &file_stat)) {
-    off_t file_size = file_stat.st_size;
-    struct buffer* buf = buffer_alloc(buffer_name);
-    buf->fsize = file_size;
-    buf->size = (long)file_size;
-    int len = strlen(file_path);
-    buf->filepath= malloc((len+1)*sizeof(char));
-    strncpy(buf->filepath,file_path,len);
-    buf->filepath[len]='\0';
-    buffer_fill_lines(buf,file_path);
+  if(0 == stat(path, &file_stat)) {
+
+    struct buffer* buf = buffer_create(buffer_name);
+    buf->fsize = file_stat.st_size;
+    buf->size = (long) buf->fsize; //unused
+
+    buf->filepath = xstrcpy(path);
+
+    FILE* file =  fopen(buf->filepath,"r");
+
+    if(file == NULL) {
+      return NULL;
+    }
+
+    buffer_fill_lines(buf,file,0);
 
     return buf;
-  } else{
+  } else {
+    // File does not exist 
     // perror
   }
   return NULL;
@@ -979,19 +984,15 @@ display_redraw(struct display* display)
 {
   LOG_DEBUG("Called: display_redraw \n");
 
-  if(display->buffer_window == NULL) {
-    display->buffer_window = newwin(display->height,
-                                    display->width,0,0);
-  }
-
   wmove(display->buffer_window,0,0);
   wrefresh(display->buffer_window);
 
   int i = 0;
-  struct line* start_line_ptr = display->start_line_ptr;
-  while(start_line_ptr!=NULL && i < display->height) {
-    wprintw(display->buffer_window,"%s",start_line_ptr->data);
-    start_line_ptr = start_line_ptr->next;
+  struct line* start = display->start_line_ptr;
+  
+  while(start!=NULL && i < display->height) {
+    wprintw(display->buffer_window,"%s",start->data);
+    start = start->next;
     i++;
   }
   wprintw(display->buffer_window,"\n");
@@ -1072,7 +1073,8 @@ display_startlinep(struct display* display)
 }
 
 bool
-display_insert_char(struct display* display, void* misc)
+display_insert_char(struct display* display,
+                    void* misc)
 {
   char* cur = (char*) misc;
   buffer_insert_char(display->current_buffer, *cur, display->cursor_column);
@@ -1082,7 +1084,8 @@ display_insert_char(struct display* display, void* misc)
 }
 
 bool
-display_bleep(struct display* display, void* misc)
+display_bleep(struct display* display,
+              void* misc)
 {
   beep();
   flash();
@@ -1095,7 +1098,9 @@ display_bleep(struct display* display, void* misc)
  * matching line shows on the last line of column
  */
 bool
-display_goto_position(struct display* display, int nline, int column)
+display_goto_position(struct display* display,
+                      int nline,
+                      int column)
 {
   struct line* line = display->current_buffer->lines;
   struct line* start = line;
@@ -1213,12 +1218,7 @@ mode_line_input(char* prompt,
   getstr(user_input);
   noecho();
 
-  int len = strlen(user_input);
-  char* retval = malloc((len+1)*sizeof(char));
-  strncpy(retval,user_input,len);
-  retval[len] = '\0';
-
-  return retval;
+  return xstrcpy(user_input);
 }
 
 void
@@ -1244,9 +1244,7 @@ buffer_search_alloc(struct buffer* buffer,
   buffer->search->prev_col = 0;
   buffer->search->line_number = start_line;
   buffer->search->line_column  = 0;
-
-  buffer->search->str = malloc(sizeof(search_term));
-  strncpy(buffer->search->str,search_term,sizeof(search_term));
+  buffer->search->str = xstrcpy(search_term);
 }
 
 bool
@@ -1369,8 +1367,6 @@ const struct keymap_entry search_keymap[] =
  {"n",false,&display_search_next},
  {"N",false, &display_search_prev}
 };
-
-
 
 const struct keymap_entry insert_keymap[] =
 {
@@ -1495,7 +1491,7 @@ start_display(struct buffer* buffer)
 
   struct display* display =
     display_init(buffer,height,width);
-
+  
   // leave space for mode line
   display->height -= 2;
 
@@ -1511,6 +1507,7 @@ start_display(struct buffer* buffer)
     wrefresh(display->mode_window);
     wrefresh(display->buffer_window);
     redisplay = false;
+    
     while(!redisplay) {
       mode_line_show(display);
       cur = getch();
@@ -1535,12 +1532,11 @@ main(int argc,
   XLOG = logging_init();
 
   all_buffers = buffer_list_create();
-  if(argc > 1)
+  if(argc > 1) {
     all_buffers->cur = buffer_open_file("x.c", argv[1]);
-  else
-    all_buffers->cur = buffer_open_file("x.c",
-                                        "/home/aakarsh/src/c/x/x.c");
-
+  } else {
+    all_buffers->cur = buffer_open_file("x.c","/home/aakarsh/src/c/x/x.c");
+  }
   if(all_buffers->cur) {
     start_display(all_buffers->cur);
   }
@@ -1548,4 +1544,27 @@ main(int argc,
   logging_end(XLOG);
 
   return 0;
+}
+
+
+/**
+ * Creates allocates copy of string on heap and returns a pointer, or
+ * NULL on any error.
+ */
+char*
+xstrcpy(char* str)
+{
+  if(NULL == str)
+    return NULL;
+  
+  long length = strlen(str);
+  char* retval = malloc ((length+1) * sizeof(char));
+
+  if(NULL == retval)
+    return NULL;
+
+  strncpy(retval,str,(size_t)length);
+  retval[length]='\0';
+
+  return str;
 }
