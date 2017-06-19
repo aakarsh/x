@@ -264,7 +264,10 @@ line_unlink(struct line* line,
   return line;
 }
 
-static struct buffer_list* all_buffers;
+/**
+ * List of all open buffers.
+ */
+static struct buffer_list* buffers;
 
 struct buffer_list*
 buffer_list_create()
@@ -415,7 +418,6 @@ buffer_open_file(char* buffer_name,
     struct buffer* buf = buffer_create(buffer_name);
     buf->fsize = file_stat.st_size;
     buf->size = (long) buf->fsize; //unused
-
     buf->filepath = xstrcpy(path);
 
     FILE* file =  fopen(buf->filepath,"r");
@@ -423,13 +425,19 @@ buffer_open_file(char* buffer_name,
     if(file == NULL) {
       return NULL;
     }
-
     buffer_fill_lines(buf,file,0);
-
+    
     return buf;
   } else {
-    // File does not exist 
-    // perror
+    // file does not exist  
+    struct buffer* buf = buffer_create(buffer_name);
+    buf->fsize = 0;
+    buf->filepath = xstrcpy(path);
+    buf->num_lines = 0;
+    buf->modified = false;
+    buf->lines = line_create("");
+    buf->current_line = buf->lines;
+    return buf;
   }
   return NULL;
 }
@@ -722,6 +730,36 @@ display_pg_down(struct display * display)
   display->current_buffer->current_line = pg_start;
 
   display->cursor_line = 0;
+  return true;
+}
+
+/**
+ * Go to the last page
+ */
+bool
+display_pg_last(struct display* display,void* misc)
+{
+  long pg_size = display->height;
+  int cur_line = 0;
+
+  // assume we start at current current page.
+  struct line* pg_start = display->current_buffer->current_line;
+  struct line* cur = display->current_buffer->current_line;
+  struct line* cur_prev = cur;
+  while( NULL != cur ) {    
+    if(cur_line > pg_size) {
+      pg_start = cur;
+      cur_line = 0;
+    }
+    cur_prev = cur;
+    cur = cur->next;
+    cur_line++;
+  }
+  
+  display->start_line_ptr = pg_start;
+  display->current_buffer->current_line = cur_prev;
+  display->cursor_line = cur_line - 1;
+  
   return true;
 }
 
@@ -1103,7 +1141,7 @@ display_goto_position(struct display* display,
   int n = 0;
   int pos = 0;
 
-  while(n < nline && NULL != line ) {
+  while (n < nline && NULL != line ) {
     if(pos > display->height) {
       pos = 0;
       start = line;  // update what will be screen start
@@ -1406,6 +1444,7 @@ const struct keymap_entry command_keymap[] =
  {"n",false, &display_search_next},
  {"<",false, &display_pg_up_begin},
  {">",false, &display_pg_down_begin},
+ {"G",false, &display_pg_last},
  {"o",false, &display_open_line},
  {"j",false, &display_move_line_down},
  {"k",false, &display_move_line_up},
@@ -1481,18 +1520,20 @@ mode_line_show(struct display* display)
 {
   struct buffer* cur = display->current_buffer;
   char mode_line[display->width-1];
-  snprintf(mode_line,display->width-1,
-           "-[%s name: %s, cursor:(%d,%d) len:%d num_lines:%d , mode:%s ][%d x %d] line:%s",
-           cur->modified ? "**" : " ",
-           cur->buf_name,
-           display->cursor_line,
-           display->cursor_column,
-           (int)strlen(cur->current_line->data),
-           cur->num_lines,
-           modes[display->mode].mode_line,
-           display->height,
-           display->width,
-           display->current_buffer->current_line->data);
+  if(cur->current_line) {
+    snprintf(mode_line,display->width-1,
+             "-[%s name: %s, cursor:(%d,%d) len:%d num_lines:%d , mode:%s ][%d x %d] line:%s",
+             cur->modified ? "**" : " ",
+             cur->buf_name,
+             display->cursor_line,
+             display->cursor_column,
+             (int)strlen(cur->current_line->data),
+             cur->num_lines,
+             modes[display->mode].mode_line,
+             display->height,
+             display->width,
+             display->current_buffer->current_line->data);
+  }
 
   wmove(display->mode_window,0,0);
   wprintw(display->mode_window,mode_line);
@@ -1549,14 +1590,14 @@ main(int argc,
 {
 
   XLOG = logging_init();
-  all_buffers = buffer_list_create();
+  buffers = buffer_list_create();
   if(argc > 1) {
-    all_buffers->cur = buffer_open_file("x.c", argv[1]);
+    buffers->cur = buffer_open_file("x.c", argv[1]);
   } else {
-    all_buffers->cur = buffer_open_file("x.c","/home/aakarsh/src/c/x/x.c");
+    buffers->cur = buffer_open_file("x.c","/home/aakarsh/src/c/x/x.c");
   }
-  if(all_buffers->cur) {
-    start_display(all_buffers->cur);
+  if(buffers->cur) {
+    start_display(buffers->cur);
   }
   logging_end(XLOG);
   return 0;
@@ -1584,23 +1625,21 @@ xstrcpy(char* str)
   return str;
 }
 
-
+/**
+ * Concatenate two lines dropping terminating new line of first new
+ * line if it has one. 
+ */
 char*
 strlinecat(char * l0,char* l1)
 {
-  int len     = strlen(l0) + strlen(l1);
-  char* line = realloc(l0, len);
+  char* line  = realloc(l0, strlen(l0) + strlen(l1));
   
   if(!line)
     return NULL;
   
-  while(*(l0++) && *(l0)!='\n')
-    ;
-
-  while((*l0++ =  *l1++))
-    ;
+  while(*(l0++) && *(l0)!='\n') ;
   
-  return line;
+  while((*l0++ =  *l1++)) ;
 
-  
+  return line;  
 }
