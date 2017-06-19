@@ -13,7 +13,9 @@
 
 #define ARRAY_SIZE(x) ((sizeof x) / (sizeof *x))
 
+char* strlinecat(char * l0,char* l1);
 char* xstrcpy(char* str);
+
 const char* log_file ="x.log";
 
 enum log_level { LOG_LEVEL_INFO, LOG_LEVEL_DEBUG};
@@ -80,7 +82,6 @@ enum display_mode
     SEARCH_MODE
   };
 
-
 struct display {
   int height;
   int width;
@@ -129,7 +130,6 @@ logging_end(struct log* log)
   free(log);
 }
 
-
 /**
  * Creates a line initialized with the copy of data;
  */
@@ -139,9 +139,8 @@ line_create(char* data)
   struct line* newline = malloc(sizeof(struct line));
    newline->line_number = -1;
    newline->file_position = -1;
-   long length = strlen(data);
    newline->data = xstrcpy(data);
-   newline->data_len = length;
+   newline->data_len = strlen(newline->data);
    return newline;
 }
 
@@ -176,7 +175,7 @@ line_insert(struct line* new_line,
 }
 
 /**
- * Merge the current line with the previous line. Due to the presence
+ * TODO :Merge the current line with the previous line. Due to the presence
  * of new line. When this line is merged with previous line we will
  * need to handle the newline.
  */
@@ -190,16 +189,11 @@ line_merge(struct line* line,
 
   struct line* line_prev = line->prev;
 
-  long line_length = strlen(line->data);
-  long prev_length = strlen(line_prev->data);
-  long joined_length = line_length + prev_length + 1;
-
-  char* joined_lines = realloc(line_prev->data, joined_length);
-
+  char* joined_lines = strlinecat(line_prev->data, line->data);
+  
   if(NULL == joined_lines )
     return line;
-
-  line_prev->data     = strncat(joined_lines,line->data,line_length+prev_length);
+  
   line_prev->data_len = strlen(joined_lines);
 
   line_prev->next = line->next;
@@ -930,6 +924,7 @@ bool
 display_join(struct display* display,void* misc)
 {
   buffer_join_line(display->current_buffer);
+  display->cursor_line -= 1;
   move(display->cursor_line,display->cursor_column);
   return true;
 }
@@ -1136,20 +1131,32 @@ display_goto_position(struct display* display,
 }
 
 /**
- * Handle backspace or delete key
+ * The cases are 
  */
 bool
 display_insert_backspace(struct display* display,void* misc)
 {
   bool redisplay = true;
+  LOG_DEBUG("backspace \n");
 
   if(!display_cursor_bolp(display)) { // if not begining of the line
-    buffer_delete_char(display->current_buffer, --(display->cursor_column));
-  } else { // We are at the begining of the line
+    display->cursor_column -= 1;
+    buffer_delete_char(display->current_buffer, display->cursor_column);
+    move(display->cursor_line,display->cursor_column);
+  } else {     // We are at the begining of the line
+
     if(!display_startlinep(display)) {
+      
+      struct line* line  = display->current_buffer->current_line;
+      struct line* prev  = line->prev;
+
+      display->cursor_line -= 1;
+      
+      if(prev)
+        display->cursor_column = strlen(prev->data) - 1;
+      
       buffer_join_line(display->current_buffer);
-      display->cursor_line--;
-      display->cursor_column = strlen(display->current_buffer->current_line->data)-1;
+      
       LOG_DEBUG("buffer_join_line result [%s] cursor_line %d, cursor_column %d ",
                 display->current_buffer->current_line->data,
                 display->cursor_column,
@@ -1334,17 +1341,34 @@ display_init(struct buffer* buffer,int height,int width)
   return dis;
 }
 
+struct builtin_cmd {
+  char* cmd;
+  bool (*display_cmd)(struct display* display, void* misc);
+};
+
+const struct builtin_cmd commands[] =
+  {
+   {"w", &display_save},
+   {"q", &display_quit},
+   {"wq", &display_quit}
+  };
 
 bool
 display_run_cmd(struct display* display,void* misc)
 {
-  //TODO: command parser/handler
   char* cmd = mode_line_input(":",display);
   move(display->cursor_line,display->cursor_column);
   if(cmd == NULL) {
     return true;
   }
   LOG_DEBUG("read cmd: %s ",cmd);
+  
+  int i;
+  for(i = 0; i < ARRAY_SIZE(commands); i++) {
+    if(strcmp(commands[i].cmd,cmd) == 0) {
+      commands[i].display_cmd(display,misc);
+    }
+  }  
   return true;
 }
 
@@ -1363,25 +1387,22 @@ struct mode {
 
 const struct keymap_entry search_keymap[] =
 {
- {NULL,false, &display_to_command_mode},
- {"n",false,&display_search_next},
- {"N",false, &display_search_prev}
+ {NULL,false,   &display_to_command_mode},
+ {"n" ,false,   &display_search_next},
+ {"N" ,false,   &display_search_prev}
 };
 
 const struct keymap_entry insert_keymap[] =
 {
- {NULL,false, &display_insert_char},
+ {NULL,  false, &display_insert_char},
  {"^C",  false, &display_to_command_mode},
- {"n" ,  false, &display_search_next},
- {"N" ,  false, &display_search_prev},
- {"RET",false,  &display_insert_cr},
- {"\b", false,display_insert_backspace}
-
+ {"RET", false, &display_insert_cr},
+ {"\b",  false, &display_insert_backspace}
 };
 
 const struct keymap_entry command_keymap[] =
 {
- {NULL,false, &display_bleep},
+ {NULL,false,&display_bleep},
  {"n",false, &display_search_next},
  {"<",false, &display_pg_up_begin},
  {">",false, &display_pg_down_begin},
@@ -1438,7 +1459,7 @@ const struct keymap_entry*
 keymap_find_by_char(char cur,
                     const struct keymap_entry keymap[],
                     int size)
-{
+{  
   char char_cmd[5];
   if (3 == cur) {
     sprintf(char_cmd,"%s","^C");
@@ -1459,7 +1480,6 @@ void
 mode_line_show(struct display* display)
 {
   struct buffer* cur = display->current_buffer;
-
   char mode_line[display->width-1];
   snprintf(mode_line,display->width-1,
            "-[%s name: %s, cursor:(%d,%d) len:%d num_lines:%d , mode:%s ][%d x %d] line:%s",
@@ -1476,8 +1496,7 @@ mode_line_show(struct display* display)
 
   wmove(display->mode_window,0,0);
   wprintw(display->mode_window,mode_line);
-
- wrefresh(display->mode_window);
+  wrefresh(display->mode_window);
 }
 
 void
@@ -1530,7 +1549,6 @@ main(int argc,
 {
 
   XLOG = logging_init();
-
   all_buffers = buffer_list_create();
   if(argc > 1) {
     all_buffers->cur = buffer_open_file("x.c", argv[1]);
@@ -1540,12 +1558,9 @@ main(int argc,
   if(all_buffers->cur) {
     start_display(all_buffers->cur);
   }
-
   logging_end(XLOG);
-
   return 0;
 }
-
 
 /**
  * Creates allocates copy of string on heap and returns a pointer, or
@@ -1567,4 +1582,25 @@ xstrcpy(char* str)
   retval[length]='\0';
 
   return str;
+}
+
+
+char*
+strlinecat(char * l0,char* l1)
+{
+  int len     = strlen(l0) + strlen(l1);
+  char* line = realloc(l0, len);
+  
+  if(!line)
+    return NULL;
+  
+  while(*(l0++) && *(l0)!='\n')
+    ;
+
+  while((*l0++ =  *l1++))
+    ;
+  
+  return line;
+
+  
 }
