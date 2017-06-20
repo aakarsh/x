@@ -741,10 +741,11 @@ display_pg_last(struct display* display,void* misc)
 {
   long pg_size = display->height;
   int cur_line = 0;
-
+  
   // assume we start at current current page.
-  struct line* pg_start = display->current_buffer->current_line;
-  struct line* cur = display->current_buffer->current_line;
+  struct line* pg_start = display->start_line_ptr;
+  // to keep pages aligned
+  struct line* cur = display->start_line_ptr;
   struct line* cur_prev = cur;
   while( NULL != cur ) {    
     if(cur_line > pg_size) {
@@ -1168,6 +1169,16 @@ display_goto_position(struct display* display,
   return true;
 }
 
+bool
+display_insert_tab(struct display* display,void* misc)
+{
+  int tab_width = 8;
+  char c = ' ';
+  int i  = 0; 
+  for(i = 0; i< tab_width;i++)
+    display_insert_char(display,&c);
+  return true;
+}
 /**
  * The cases are 
  */
@@ -1435,7 +1446,9 @@ const struct keymap_entry insert_keymap[] =
  {NULL,  false, &display_insert_char},
  {"^C",  false, &display_to_command_mode},
  {"RET", false, &display_insert_cr},
- {"\b",  false, &display_insert_backspace}
+ {"\b",  false, &display_insert_backspace},
+ {"ESC",  false, &display_to_command_mode},
+ {"\t",  false, &display_insert_tab}
 };
 
 const struct keymap_entry command_keymap[] =
@@ -1502,6 +1515,8 @@ keymap_find_by_char(char cur,
   char char_cmd[5];
   if (3 == cur) {
     sprintf(char_cmd,"%s","^C");
+  } else if (27 == cur){
+    sprintf(char_cmd,"%s","ESC");
   } else if (KEY_ENTER == cur || '\n' == cur) {
     sprintf(char_cmd,"%s","RET");
   } else if (KEY_BACKSPACE == cur  || 127 == cur || 8 == cur || '\b' == cur){
