@@ -209,27 +209,27 @@ void
 buffer_search_alloc(struct buffer* buffer,
                     char* search_term,
                     int start_line);
-
+static
 void
 display_set_buffer(struct display* display,
                    struct buffer* buffer);
-
+static
 void
 display_line_up(struct display * display);
-
+static
 bool
 display_line_down(struct display * display);
-
+static
 bool
 display_pg_down(struct display * display);
-
+static
 bool
 display_pg_last(struct display* display,
                 void* misc);
-
+static
 bool
 display_pg_up(struct display * display);
-
+static
 bool
 display_pg_up_begin(struct display * display,
                     void* misc);
@@ -237,136 +237,173 @@ bool
 display_pg_down_begin(struct display * display,
                       void* misc);
 
-bool
-display_pg_up_end(struct display * display,
-                  void* misc);
-
+/* static */
+/* bool */
+/* display_pg_up_end(struct display * display, */
+/*                   void* misc); */
+static
 bool
 display_end_of_line(struct display* display,
                     void* misc);
-
+static
 bool
 display_begining_of_line(struct display* display,
                          void* misc);
+static
 bool
 display_to_insert_mode(struct display* display,
                        void* misc);
-
+static
 bool
 display_to_command_mode(struct display* display,
                         void* misc);
 
+static
 bool
 display_empty_linep(struct display* display);
 
+static
 bool
 display_cursor_bolp(struct display* display);
 
+static
 bool
 display_on_first_linep(struct display* display);
 
+static
 bool
 display_on_last_linep(struct display* display);
 
+static
 bool
 display_move_line_up(struct display* display,
                      void* misc);
 
+static
 bool
 display_move_line_down(struct display* display,
                        void* misc);
-
+static
 bool
 display_move_left(struct display* display,
                   void* misc);
 
+static
 bool
 display_move_right(struct display* display,
                    void* misc);
+
+static
 bool
 display_join(struct display* display,
              void* misc);
-
+static
 bool
 display_delete_char(struct display* display,
                     void* misc);
 
+static
 bool
 display_delete_line(struct display* display,
                     void* misc);
+
+static
 bool
 display_quit(struct display* display,
              void* misc);
-
+static
 bool
 display_save(struct display* display,
              void* misc);
+
+static
 void
 display_redraw(struct display* display);
 
+static
 int
 display_line_number(struct display* display);
 
-bool
-display_cursor_eolp(struct display* display);
+/* static */
+/* bool */
+/* display_cursor_eolp(struct display* display); */
 
+/**
+static
 bool
 display_cursor_within_line(struct display* display);
+*/
 
+static
 bool
 display_insert_cr(struct display* display,
                   void* misc);
 
+static
 bool
 display_open_line(struct display* display,
                   void* misc);
-
+static
 bool
 display_startlinep(struct display* display);
 
+static
 bool
 display_insert_char(struct display* display,
                     void* misc);
+
+static
 bool
 display_bleep(struct display* display,
               void* misc);
+
+static
 bool
 display_goto_position(struct display* display,
                       int nline,
                       int column);
+
+static
 bool
 display_insert_tab(struct display* display,
                    void* misc);
-
+static
 bool
 display_insert_backspace(struct display* display,
                          void* misc);
 
+static
 bool
 display_search(struct display* display,
                char* search,
                int current_line);
+
+static
 bool
 display_search_next(struct display* display,
                     void* unused);
-
+static
 bool
 display_search_prev(struct display* display,
                     void* misc);
 
+static
 bool
 display_start_search(struct display* display,
                      void* misc);
 
+static
 bool
 display_cmd_mode(struct display* display,
                  void* misc);
 
+static
 struct display*
 display_init(struct buffer* buffer,
              int height,
              int width);
 
+static
 bool
 display_run_cmd(struct display* display,
                 void* misc);
@@ -1076,6 +1113,7 @@ display_pg_down_begin(struct display * display,void* misc)
   return true;
 }
 
+/**
 bool
 display_pg_up_end(struct display * display,void* misc)
 {
@@ -1083,7 +1121,7 @@ display_pg_up_end(struct display * display,void* misc)
   display->cursor_line = display->height;
   return true;
 }
-
+*/
 /**
  * return - Value will indicate whether full redisplay is required.
  */
@@ -1329,20 +1367,24 @@ display_line_number(struct display* display)
 /**
  * Test that we are at the end of the current buffer's  line;
  */
+/*
 bool
 display_cursor_eolp(struct display* display)
 {
   int last_postion = display->current_buffer->current_line->data_len;
   return display->cursor_column == last_postion;
 }
+*/
 
+ /**
 bool
 display_cursor_within_line(struct display* display)
 {
   int last_postion = display->current_buffer->current_line->data_len;
   return display->cursor_column >=0  && display->cursor_column <= last_postion;
 }
-
+ */
+ 
 /**
  * Handle carriage return in insert mode.
  */
