@@ -107,6 +107,270 @@ struct log* XLOG;
     }                                           \
   } while(0);
 
+
+static
+void
+line_insert(struct line* new_line,
+            struct line* prev_line,
+            struct line** line_head);
+static
+struct line*
+line_merge(struct line* line,
+           struct line** list_head);
+static
+struct line*
+line_split(struct line* line,
+           int split_pos,
+           struct line** line_head);
+
+static
+struct line*
+line_unlink(struct line* line,
+            struct line** line_head);
+
+
+static 
+struct log*
+logging_init();
+
+static
+void
+logging_end(struct log* log);
+
+static
+struct buffer_list*
+buffer_list_create();
+
+static
+struct buffer*
+buffer_create(char* buffer_name);
+
+/**
+static
+struct line*
+buffer_find_line(struct buffer* b,
+                 int num);
+*/
+
+static
+int
+buffer_fill_lines(struct buffer* buffer,
+                  FILE* file,
+                  long offset);                    
+
+static
+void
+buffer_save(struct buffer* buffer);
+
+static
+struct buffer*
+buffer_open_file(char* buffer_name,
+                 char* path);
+
+static
+void
+buffer_insert_char(struct buffer* buffer,
+                   char insert_char,
+                   int insert_position);
+
+static
+void
+buffer_open_line(struct buffer* buffer);
+
+static
+char *
+buffer_delete_current_line(struct buffer* buffer);
+
+static
+bool
+buffer_split_line(struct buffer* buffer,
+                  int split_postion);
+
+static
+void
+buffer_join_line(struct buffer* buffer);
+
+static
+void
+buffer_delete_char(struct buffer* buffer,
+                   int delete_position);
+
+static
+struct line*
+buffer_search_forward(struct buffer* buffer,
+                      int start_line);
+
+static
+void
+buffer_search_free(struct buffer* buffer);
+
+static
+void
+buffer_search_alloc(struct buffer* buffer,
+                    char* search_term,
+                    int start_line);
+
+void
+display_set_buffer(struct display* display,
+                   struct buffer* buffer);
+
+void
+display_line_up(struct display * display);
+
+bool
+display_line_down(struct display * display);
+
+bool
+display_pg_down(struct display * display);
+
+bool
+display_pg_last(struct display* display,
+                void* misc);
+
+bool
+display_pg_up(struct display * display);
+
+bool
+display_pg_up_begin(struct display * display,
+                    void* misc);
+bool
+display_pg_down_begin(struct display * display,
+                      void* misc);
+
+bool
+display_pg_up_end(struct display * display,
+                  void* misc);
+
+bool
+display_end_of_line(struct display* display,
+                    void* misc);
+
+bool
+display_begining_of_line(struct display* display,
+                         void* misc);
+bool
+display_to_insert_mode(struct display* display,
+                       void* misc);
+
+bool
+display_to_command_mode(struct display* display,
+                        void* misc);
+
+bool
+display_empty_linep(struct display* display);
+
+bool
+display_cursor_bolp(struct display* display);
+
+bool
+display_on_first_linep(struct display* display);
+
+bool
+display_on_last_linep(struct display* display);
+
+bool
+display_move_line_up(struct display* display,
+                     void* misc);
+
+bool
+display_move_line_down(struct display* display,
+                       void* misc);
+
+bool
+display_move_left(struct display* display,
+                  void* misc);
+
+bool
+display_move_right(struct display* display,
+                   void* misc);
+bool
+display_join(struct display* display,
+             void* misc);
+
+bool
+display_delete_char(struct display* display,
+                    void* misc);
+
+bool
+display_delete_line(struct display* display,
+                    void* misc);
+bool
+display_quit(struct display* display,
+             void* misc);
+
+bool
+display_save(struct display* display,
+             void* misc);
+void
+display_redraw(struct display* display);
+
+int
+display_line_number(struct display* display);
+
+bool
+display_cursor_eolp(struct display* display);
+
+bool
+display_cursor_within_line(struct display* display);
+
+bool
+display_insert_cr(struct display* display,
+                  void* misc);
+
+bool
+display_open_line(struct display* display,
+                  void* misc);
+
+bool
+display_startlinep(struct display* display);
+
+bool
+display_insert_char(struct display* display,
+                    void* misc);
+bool
+display_bleep(struct display* display,
+              void* misc);
+bool
+display_goto_position(struct display* display,
+                      int nline,
+                      int column);
+bool
+display_insert_tab(struct display* display,
+                   void* misc);
+
+bool
+display_insert_backspace(struct display* display,
+                         void* misc);
+
+bool
+display_search(struct display* display,
+               char* search,
+               int current_line);
+bool
+display_search_next(struct display* display,
+                    void* unused);
+
+bool
+display_search_prev(struct display* display,
+                    void* misc);
+
+bool
+display_start_search(struct display* display,
+                     void* misc);
+
+bool
+display_cmd_mode(struct display* display,
+                 void* misc);
+
+struct display*
+display_init(struct buffer* buffer,
+             int height,
+             int width);
+
+bool
+display_run_cmd(struct display* display,
+                void* misc);
+
 struct log*
 logging_init()
 {
@@ -183,7 +447,6 @@ struct line*
 line_merge(struct line* line,
            struct line** list_head)
 {
-
   if(NULL == line->prev )
     return line;
 
@@ -292,6 +555,7 @@ buffer_create(char* buffer_name)
  * Return a pointer to a line rather than using indices into content
  * field.
  */
+/**
 struct line*
 buffer_find_line(struct buffer* b,
                  int num)
@@ -314,6 +578,7 @@ buffer_find_line(struct buffer* b,
   }
   return cur;
 }
+*/
 
 /**
  * Read file contents into lines.
@@ -1022,16 +1287,26 @@ display_redraw(struct display* display)
   wrefresh(display->buffer_window);
 
   int i = 0;
+  int cnt = 0;
   struct line* start = display->start_line_ptr;
+  struct line* prev = NULL;
   
   while(start!=NULL && i < display->height) {
     wprintw(display->buffer_window,"%s",start->data);
+    prev = start;
     start = start->next;
     i++;
+    cnt++;
   }
-  wprintw(display->buffer_window,"\n");
+  bool no_ending_newline = false;
+  if(prev)
+    no_ending_newline = (NULL == strchr(prev->data,'\n'));
   // fill rest of screen with blanks
-  for(; i < display->height-1; i++) {
+  for(; i < display->height; i++) {
+    
+    if(no_ending_newline && i == cnt)
+      wprintw(display->buffer_window,"\n");
+    
     wprintw(display->buffer_window,"~\n");
   }
 }
@@ -1515,7 +1790,7 @@ keymap_find_by_char(char cur,
   char char_cmd[5];
   if (3 == cur) {
     sprintf(char_cmd,"%s","^C");
-  } else if (27 == cur){
+  } else if (27 == cur) {
     sprintf(char_cmd,"%s","ESC");
   } else if (KEY_ENTER == cur || '\n' == cur) {
     sprintf(char_cmd,"%s","RET");
@@ -1658,3 +1933,4 @@ strlinecat(char * l0,char* l1)
 
   return line;  
 }
+
