@@ -26,6 +26,90 @@ struct log {
   FILE* debug_file;
 };
 
+
+////////////////////////////////////////////////////////////////////////////////
+// Trial usage of Rope Data Structure
+////////////////////////////////////////////////////////////////////////////////
+// See: 
+// http://bitsavers.trailing-edge.com/pdf/xerox/parc/techReports/CSL-94-10_Ropes_Are_Better_Than_Strings.pdf
+//
+//
+/**
+ *  NULL is a valid rope type with length 0
+ *
+ *  If rope pointer is not null then it points to a non-empty string.
+ *
+ *  Non-leaf nodes with non-NULL left and right fields are concatenative.
+ *  their data fields will be NULL.
+ */
+struct rope {
+  int length;
+  struct rope* left;
+  struct rope* right;
+  const char* data;
+};
+
+struct rope_position {
+  long position;
+  struct rope* rope;
+};
+
+int
+rope_length(struct rope* rope);
+
+struct rope*
+rope_join(struct rope* r1,
+          struct rope* r2);
+
+char
+rope_char_at(struct rope* r,
+             long pos);
+
+struct rope*
+rope_sub(struct rope* r,
+         long low,
+         long high);
+
+struct rope*
+rope_append(struct rope* rope,
+            char* str);
+
+void
+rope_rebalance(struct rope* rope);
+
+// concatenation
+
+/**
+ * If both arguments are "short" ropes then it makes sense to produce
+ * a flat rope.
+ * 
+ * 
+ */
+struct rope*
+rope_join(struct rope* r1,
+          struct rope* r2){
+  struct rope* retval = malloc(sizeof(struct rope));
+  if(!retval)
+    return NULL;
+  
+  retval->length = r1->length + r2->length;
+  retval->left = r1;
+  retval->right = r2;
+  retval->data = NULL;
+  
+  return retval;
+}
+
+
+// substring
+
+// fetch character
+
+
+// sequential traversal
+
+
+////////////////////////////////////////////////////////////////////////////////
 struct line {
   long line_number;
   int file_position;
@@ -113,10 +197,12 @@ void
 line_insert(struct line* new_line,
             struct line* prev_line,
             struct line** line_head);
+
 static
 struct line*
 line_merge(struct line* line,
            struct line** list_head);
+
 static
 struct line*
 line_split(struct line* line,
@@ -127,7 +213,6 @@ static
 struct line*
 line_unlink(struct line* line,
             struct line** line_head);
-
 
 static 
 struct log*
