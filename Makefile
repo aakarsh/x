@@ -1,5 +1,5 @@
-x: x.c
-	gcc -DDEBUG -Wall  x.c -o x -lm -lncurses
+x: x.cc
+	g++  -std=c++11 -DDEBUG -Wno-write-strings  -fpermissive -Wall x.cc -o x -lm -lncurses
 	global -u
 	cp x ~/bin/x
 
