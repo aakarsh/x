@@ -55,29 +55,54 @@ public:
 
 class Line {
 public:
+  
+  // Position relative to the file.
   long line_number;
-  int file_position;
-  int line_pos;
-  int data_len;
-  string data;
+  long file_position;
+  long line_pos;
 
-  Line(): line_number(0),
-          file_position(0),
-          line_pos(0),
-          data_len(0) {}
+  // Line Data
+  string data;
+  
+  Line(int line_no, int  fpos, int lpos):
+    line_number(line_no)
+    ,file_position(fpos)
+    ,line_pos(lpos) {}
+  
+  Line(int line_no, int  fpos, int lpos,string& data):
+    line_number(line_no)
+    ,file_position(fpos)
+    ,line_pos(lpos)
+    ,data(data){}
+
+  Line(): Line(0,0,0) { }
+    
 };
 
+
+
 class Buffer {
+
 private:
+  
+  // list of buffer errors
+  enum BufferError { Buffer_NoError, Buffer_FileError, Buffer_NoFile } ;
+  
   // file backing this buffer 
-  const string filePath;  
-  // buffer-name
+  const string filePath;
+  
+  // buffer name
   const string bufferName;
+
+  // file stream backing the buffer.
+  const fstream bufferStream;
+
+  BufferError  errorCode;
 
   // size of buffer.
   off_t size;
 
-  // Read lines 
+  // read lines 
   int num_lines;
   
   off_t fsize;
@@ -88,11 +113,24 @@ private:
   // list of lines of the buffer.
   vector<Line*> lines;
     
-public:  
-  Buffer(string name, string path):
-    filePath(path),
-    bufferName(name) {
-    fstream bufferStream { path, ios_base::in };
+public:
+
+  Buffer () :
+    filePath(""),
+    bufferName("*default*"),
+    errorCode(Buffer_NoFile) { }
+  
+  Buffer (string name, string path):    
+      filePath(path)
+    , bufferName(name)
+    , bufferStream(path, ios_base::in)  {
+    
+    if(bufferStream.rdstate() && std::ifstream::failbit != 0) {
+      errorCode = Buffer_NoError;
+      return;
+    }
+    
+    
     /**
      * file stat
      * struct stat file_stat;     
@@ -137,13 +175,88 @@ public:
   return NULL;
     */
   }
-
+  
+  bool isErrorState() {
+    return errorCode != Buffer_NoError;
+  }  
+  
 };
 
-/**
- * List of all open buffers.
- */
-static vector<Buffer*> bufList;
+
+class BufferList {
+private:
+  vector<Buffer*> buffers;
+  Buffer* curBuf;
+  
+public:
+  BufferList(){};
+  
+  BufferList(Buffer* first):
+    curBuf(first) {
+    this->buffers.push_back(first);
+  }
+  
+  BufferList& addBuffer(Buffer* buffer) {
+    return this->addBuffer(*buffer);
+  }
+  
+  BufferList& addBuffer(Buffer& buffer) {
+    this->buffers.push_back(&buffer);
+    this->curBuf = &buffer;
+    return *this;
+  }
+
+  int numBuffers()  {
+    return this->buffers.size();
+  }
+  
+  Buffer* getCurrentBuffer() {
+    return this->curBuf;
+  }
+  
+};
+
+
+class Display {
+  
+private:
+  
+  int height;
+  int width;
+  BufferList* buffers;
+
+  bool redisplay;
+  // quit will cause the display loop to exit
+  bool quit;
+
+public:
+  Display(BufferList& bufs):
+    buffers(&bufs) {
+
+    // determine the screen
+    initscr();
+    
+    // initialized the height and width
+    getmaxyx(stdscr, this->height, this->width);
+
+    this->height -= 2; // leave space
+
+    raw();
+    refresh();
+  }
+
+  
+  void loop(){
+    // Buffer* displayBuffer = buffers->getCurrentBuffer();
+    while(!quit) { // quit
+      
+    }
+    return;
+  }
+  
+};
+  
+
 
 struct line {
   long line_number;
@@ -647,12 +760,9 @@ line_unlink(struct line* line,
 }
 
 /**
- * List of all open buffers.
+ * Buffered List
  */
 static struct buffer_list* buffers;
-
-
-
 
 
 struct buffer_list*
@@ -2009,17 +2119,19 @@ main(int argc,char* argv[])
   XLOG = new Logger(); //logging_init();
   buffers = buffer_list_create();
 
+  BufferList bufList;  
+  Display display(bufList);
+  
   if(argc > 1) {
     
     buffers->cur = (struct buffer*) buffer_open_file("x.cc", argv[1]);
-
-    Buffer*  xBuf = new Buffer( string { "*start-buffer*"},
-                                string { argv[1]         });
-    
-    bufList.push_back(xBuf);
+    // using implicit type conversion
+    bufList.addBuffer(new Buffer("*start-buffer*",argv[1]));
     
   } else {
     buffers->cur = (struct buffer*) buffer_open_file("x.cc","/home/aakarsh/src/c/x/x.cc");
+    // add the buffer to list of buffers
+    bufList.addBuffer(new Buffer("x.cc","/home/aakarsh/src/c/x/x.cc"));
   }
   if(buffers->cur) {
     start_display(buffers->cur);
