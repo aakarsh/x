@@ -13,35 +13,52 @@
 #include <unistd.h>
 
 #include <fstream>
+#include <sstream>
 #include <vector>
 #include <string>
+#include <map>
+
+#include <memory>
 
 using namespace std;
 
-#define ARRAY_SIZE(x) ((sizeof x) / (sizeof *x))
+class AppProperties {
+  friend class Logger;
+  
+public:
+  static bool debugMode;
+  static string debugLogFile;
+};
 
-char* strlinecat(char * l0,char* l1);
+#ifdef DEBUG
+bool AppProperties::debugMode = true;
+#else
+bool AppProperties::debugMode = false;
+#endif
 
-char* xstrcpy(char* str);
+string AppProperties::debugLogFile = "x-debug.log";
 
 const char* log_file ="x.log";
 
-enum log_level { LOG_LEVEL_INFO,
-                 LOG_LEVEL_DEBUG};
+enum log_level { LOG_LEVEL_INFO, LOG_LEVEL_DEBUG};
 
 class Logger {
 private:
 public:
-    enum log_level level;
+  log_level level;
   FILE* debug_file;
   ifstream debug_stream;
-  Logger() {
-    this->level = LOG_LEVEL_INFO;
-#ifdef DEBUG
-    this->level = LOG_LEVEL_DEBUG;
-    this->debug_file = fopen("x-debug.log","w+");
-    this->debug_stream.open("x-debug.log", std::ifstream::in);
-#endif
+  static bool debug_mode;
+
+  Logger():
+      level(LOG_LEVEL_INFO)
+      , debug_stream(AppProperties::debugLogFile, std::ifstream::in)
+  {
+    if(AppProperties::debugMode) {
+      this->level = LOG_LEVEL_DEBUG;
+      this->debug_file = fopen(AppProperties::debugLogFile.c_str(),"w+");
+      this->debug_stream.open(AppProperties::debugLogFile, std::ifstream::in);
+    }
   }
 
   ~Logger() {
@@ -55,208 +72,436 @@ public:
 
 class Line {
 public:
-  
   // Position relative to the file.
   long line_number;
-  long file_position;
+  streampos file_position;
   long line_pos;
 
   // Line Data
   string data;
-  
-  Line(int line_no, int  fpos, int lpos):
+
+  Line(int line_no, streampos  fpos, int lpos):
     line_number(line_no)
     ,file_position(fpos)
     ,line_pos(lpos) {}
-  
-  Line(int line_no, int  fpos, int lpos,string& data):
+
+  Line(int line_no, streampos  fpos, int lpos,string& data):
     line_number(line_no)
     ,file_position(fpos)
     ,line_pos(lpos)
     ,data(data){}
 
-  Line(): Line(0,0,0) { }
-    
+  Line(): Line(0,0,0) {}
 };
-
-
 
 class Buffer {
 
 private:
-  
-  // list of buffer errors
-  enum BufferError { Buffer_NoError, Buffer_FileError, Buffer_NoFile } ;
-  
-  // file backing this buffer 
+  // List of buffer errors
+  enum BufferError { Buffer_NoError,
+                     Buffer_FileError,
+                     Buffer_NoFile } ;
+
+  // file backing this buffer
   const string filePath;
-  
+
   // buffer name
   const string bufferName;
 
   // file stream backing the buffer.
-  const fstream bufferStream;
+  fstream bufferStream;
 
-  BufferError  errorCode;
+  BufferError errorCode;
 
   // size of buffer.
   off_t size;
 
-  // read lines 
-  int num_lines;
-  
   off_t fsize;
   bool modified;
-  
-  int currentLineIndex ;  // current line 
+
+  // current line
+  int currentLineIndex ;
 
   // list of lines of the buffer.
   vector<Line*> lines;
-    
+
 public:
 
-  Buffer () :
-    filePath(""),
-    bufferName("*default*"),
-    errorCode(Buffer_NoFile) { }
+  vector<Line*>& getLines() {
+    return this->lines;
+  }
   
-  Buffer (string name, string path):    
+  bool isModified() {
+    return this->modified;
+  }
+  
+  string getBufferName() {
+    return this->bufferName;
+  }
+
+  // Avoid defaults
+  Buffer()  = delete;
+
+ Buffer(const Buffer& buffer)  = delete;
+
+  Buffer(string name, string path):
       filePath(path)
     , bufferName(name)
     , bufferStream(path, ios_base::in)  {
-    
+
     if(bufferStream.rdstate() && std::ifstream::failbit != 0) {
       errorCode = Buffer_NoError;
       return;
     }
-    
-    
-    /**
-     * file stat
-     * struct stat file_stat;     
-     */
-    
-    /**
-    if( 0 == stat(path, &file_stat) ) {
-      this->fsize  = file_stat.st_size;
-      // this->filepath = xstrcpy(path);=
-    }
-    */
 
-  /**
-  struct stat file_stat;
-
-  if(0 == stat(path, &file_stat)) {
-
-    this->fsize = file_stat.st_size;
-    this->size = (long) this->fsize; //unused
-    //    buf->filepath = xstrcpy(path);
-
-    FILE* file =  fopen(buf->filepath,"r");
-
-    if(file == NULL) {
-      return NULL;
-    }
-
-    buffer_fill_lines(buf,file,0);
-
-    return buf;
-  } else {
-    // file does not exist
-    struct buffer* buf = buffer_create(buffer_name);
-    buf->fsize = 0;
-    buf->filepath = xstrcpy(path);
-    buf->num_lines = 0;
-    buf->modified = false;
-    buf->lines = line_create("");
-    buf->currentLine = buf->lines;
-    return buf;
+    this->fill(bufferStream);
   }
-  return NULL;
-    */
+
+  ~Buffer() {
+    // close open file
+    bufferStream.close();
+    // free all lines.
+    this->clear();
   }
-  
+
   bool isErrorState() {
     return errorCode != Buffer_NoError;
-  }  
-  
+  }
+
+  /**
+   * Drop all saved lines.
+   */
+  void clear() {
+    for(auto it = lines.begin() ; it != lines.end() ; it++) {
+      delete *it;
+    }
+    lines.clear();
+  }
+
+  /**
+   * Fill buffer with lines from the input stream.
+   */
+  void fill(istream& in) {
+
+    string line;
+    int line_number = 0;
+
+    this->clear();
+
+    while(getline(in,line)) {
+      Line* cur =  new Line(line_number,in.tellg(),0,line);
+      lines.push_back(cur);
+    }
+  }
+
 };
 
 
 class BufferList {
+
 private:
   vector<Buffer*> buffers;
-  Buffer* curBuf;
-  
+  Buffer* currentBuffer;
+
 public:
-  BufferList(){};
-  
+  BufferList() = default;
+
   BufferList(Buffer* first):
-    curBuf(first) {
+    currentBuffer(first) {
     this->buffers.push_back(first);
   }
-  
-  BufferList& addBuffer(Buffer* buffer) {
-    return this->addBuffer(*buffer);
+
+  BufferList& append(Buffer* buffer) {
+    return this->append(*buffer);
   }
-  
-  BufferList& addBuffer(Buffer& buffer) {
+
+  BufferList& append(Buffer& buffer) {
     this->buffers.push_back(&buffer);
-    this->curBuf = &buffer;
+    this->currentBuffer = &buffer;
     return *this;
+  }
+
+  BufferList &operator+=(Buffer* buffer) {
+    return this->append(*buffer);
+  }
+
+  BufferList &operator+=(Buffer& buffer) {
+    return this->append(buffer);
   }
 
   int numBuffers()  {
     return this->buffers.size();
   }
-  
+
   Buffer* getCurrentBuffer() {
-    return this->curBuf;
+    return this->currentBuffer;
+  }
+
+};
+
+
+
+class DisplayWindow {
+  
+private:
+  int numLines;
+  int numColumns;
+  int beginY;
+  int beginX;
+
+  WINDOW* window;
+
+public:
+  // using managed resource window
+  DisplayWindow () = delete;
+  DisplayWindow& operator=(const DisplayWindow& ) = delete;
+
+  DisplayWindow(int nl, int nc,int by, int bx):
+     numLines(nl)
+    ,numColumns(nc)
+    ,beginY(by)
+    ,beginX(bx) {
+
+    window = newwin(numLines,
+                    numColumns,
+                    beginY,
+                    beginX);
+  }
+
+  int getNumLines() { return numLines; };
+
+  DisplayWindow& refresh() {
+    wrefresh(window);
+    return *this;
+  }
+
+  DisplayWindow& moveCursor(int y, int x){
+    wmove(window,y,x);
+    return *this;
+  }
+
+  DisplayWindow& displayLine(int y, int x, string line) {
+    wmove(window,y,x);
+    wprintw(window,line.c_str());
+    wrefresh(window);
+    return *this;
   }
   
+  DisplayWindow& displayLine(string line) {
+    wprintw(window,line.c_str());
+    wrefresh(window);
+    return *this;
+  }
+
+  ~DisplayWindow() {
+    delwin(window);
+  }
+
+};
+
+
+class Display;
+class DisplayCommand;
+class Mode;
+enum  DisplayMode { CommandMode = 0,
+                    InsertMode  = 1,
+                    SearchMode  = 2 };
+
+class DisplayCommand {
+  friend class Display;
+public:
+  virtual DisplayMode run(Display &display) = 0;
+};
+
+class DisplayNextLine : public DisplayCommand {  
+public:  
+  DisplayMode run(Display& display) {    
+    return CommandMode;
+  }  
+};
+
+typedef map<string,DisplayCommand*> keymap;
+
+class Mode {
+private:
+  string modeName;
+  keymap modeMap;
+  
+public:
+  Mode(const string& name, const keymap &cmds) :    
+     modeName(name)
+    ,modeMap(cmds){}
+    
+  DisplayCommand* lookup(const string& cmd) {
+    return modeMap[cmd];
+  }
 };
 
 
 class Display {
-  
+
 private:
-  
+
+
+
+  vector<Mode*> modes;
+
   int height;
   int width;
-  BufferList* buffers;
+  int curserLine;
+  int cursorColumn;
 
-  bool redisplay;
-  // quit will cause the display loop to exit
-  bool quit;
+  DisplayMode mode;
 
+  DisplayWindow *modeWindow;
+  DisplayWindow *bufferWindow;
+
+  BufferList *buffers;
+
+  bool redisplay; // trigger a buffer-redisplay of buffer
+  bool quit;      // quit will cause the display loop to exit.
+  //CommandKeyMap keymap
 public:
-  Display(BufferList& bufs):
-    buffers(&bufs) {
+
+  Display() : buffers(new BufferList()) {
 
     // determine the screen
     initscr();
-    
+
     // initialized the height and width
     getmaxyx(stdscr, this->height, this->width);
 
+    this->modeWindow    = new DisplayWindow(height-1,width,height-2,0);
+    this->bufferWindow  = new DisplayWindow(height-2,width,0,0);
+
+    keymap cmdMap;
+    cmdMap["j"] =  new DisplayNextLine();
+    string cmdModeName("CMD");
+    
+    this->modes.push_back(new Mode("CMD", cmdMap));
+    this->mode = CommandMode;    
     this->height -= 2; // leave space
 
     raw();
     refresh();
   }
-
   
-  void loop(){
-    // Buffer* displayBuffer = buffers->getCurrentBuffer();
-    while(!quit) { // quit
-      
+  Mode* getCurrentMode() {
+    return this->modes[mode];
+  }
+
+  void changeMode(DisplayMode newMode) {
+    if(newMode!= mode){
+      mode = newMode;
     }
-    return;
   }
   
+  void runCommand(const string& cmd) {
+    if(cmd == "q") { // treat quit special for nwo
+      this->quit = true;      
+    }else { // Need to look up command in the mode
+      this->redisplay = false; // Don't do redisplay unless requested
+      
+      Mode* mode = this->getCurrentMode();
+      
+      if (!mode)
+        return;
+      
+      DisplayCommand* displayCommand = mode->lookup(cmd);
+      if(!displayCommand)
+        return;
+
+      DisplayMode nextMode = displayCommand->run(*this);
+      this->changeMode(nextMode);
+      
+    }    
+  }
+
+  void displayModeLine() {
+    
+    Buffer* currentBuffer =
+      this->buffers->getCurrentBuffer();
+    
+    string modified =
+      currentBuffer->isModified() ? "*" : "-";
+    
+    stringstream modeLine;
+    modeLine<<"["<<modified<<"] "<< currentBuffer->getBufferName();
+
+    this->modeWindow->displayLine(0,0,modeLine.str());
+  }
+
+  void displayBuffer(bool redisplay) {
+
+    this->bufferWindow->moveCursor(this->curserLine,this->cursorColumn);
+    
+    Buffer* buffer =
+      this->buffers->getCurrentBuffer();
+    
+    vector<Line*> lines = buffer->getLines();
+    int lineCount;
+    for(auto it = lines.begin() ; it != lines.end(); it++){
+      if(lineCount >= this->bufferWindow->getNumLines())
+        break;
+      this->bufferWindow->displayLine((*it)->data);
+      this->bufferWindow->displayLine("\n");
+      lineCount++;
+    }
+  }
+
+  void start() {
+    this->quit = false;
+    
+    while(!this->quit) { // quit      
+      noecho();
+
+      // main buffer 
+      this->displayBuffer(true);
+      
+      // mode line 
+      this->displayModeLine();
+
+      // trigger command
+      string cmd(1,getch());
+      this->runCommand(cmd);
+      
+      // run the next command till redisplay becomes necessary
+      while(!this->redisplay && !this->quit) {
+        this->runCommand(string(1,getch()));   // get-input
+      }
+      
+      // need to reset to do a redisplay
+      this->redisplay = false;
+    }
+    
+    return;
+  }
+
+
+  /**
+   * Display will handle the life cycle of th
+   * buffer once it has been added to display's
+   * buffer list.
+   */
+  Display &operator+=(Buffer* buffer) {
+    this->buffers->append(buffer);
+    return *this;
+  }
+
+  ~Display(){    
+    endwin();    
+    // display manages buffers and its windows.
+    delete buffers;
+    delete modeWindow;
+    delete bufferWindow;
+  }
+
 };
   
 
+#define ARRAY_SIZE(x) ((sizeof x) / (sizeof *x))
+char* strlinecat(char * l0,char* l1);
+char* xstrcpy(char* str);
 
 struct line {
   long line_number;
@@ -1231,7 +1476,7 @@ display_pg_down(struct display * display)
 }
 
 /**
- * Go to the last page
+ * Go to the last page.
  */
 bool
 display_pg_last(struct display* display,void* misc)
@@ -1929,6 +2174,7 @@ display_run_cmd(struct display* display,void* misc)
       commands[i].display_cmd(display,misc);
     }
   }
+  
   return true;
 }
 
@@ -1961,7 +2207,6 @@ const struct keymap_entry insert_keymap[] =
  {"ESC",  false, &display_to_command_mode},
  {"\t",  false, &display_insert_tab}
 };
-
 
 const struct keymap_entry command_keymap[] =
 {
@@ -2036,7 +2281,7 @@ keymap_find_by_char(char cur,
   } else {
     sprintf(char_cmd,"%c",cur);
   }
-  
+
   return keymap_find( char_cmd, keymap, size);
 }
 
@@ -2098,14 +2343,17 @@ start_display(struct buffer* buffer)
 
     while(!redisplay) {
       mode_line_show(display);
-      cur = getch();
+      cur = getch(); // wait for input
+      //
       LOG_DEBUG("display_loop: received [%c] \n",cur);
       struct mode mode = modes[display->mode];
       const struct keymap_entry* kmp = mode.keymap;
       const struct keymap_entry* entry =
         keymap_find_by_char(cur,kmp,mode.num_keys);
+
       LOG_DEBUG("%s-command found:%c\n",
                 modes[display->mode].mode_line,cur);
+
       redisplay = entry->display_cmd(display,&cur);
     }
   }
@@ -2117,25 +2365,20 @@ main(int argc,char* argv[])
 {
 
   XLOG = new Logger(); //logging_init();
-  buffers = buffer_list_create();
-
-  BufferList bufList;  
-  Display display(bufList);
   
-  if(argc > 1) {
-    
-    buffers->cur = (struct buffer*) buffer_open_file("x.cc", argv[1]);
-    // using implicit type conversion
-    bufList.addBuffer(new Buffer("*start-buffer*",argv[1]));
-    
-  } else {
-    buffers->cur = (struct buffer*) buffer_open_file("x.cc","/home/aakarsh/src/c/x/x.cc");
-    // add the buffer to list of buffers
-    bufList.addBuffer(new Buffer("x.cc","/home/aakarsh/src/c/x/x.cc"));
+  Display display;
+  
+  string bufferName("x.cc");
+  string filePath("/home/aakarsh/src/c/x/x.cc");
+  
+  if(argc > 1) {     // add buffer to display
+    bufferName = argv[1];
+    filePath   = argv[1];
   }
-  if(buffers->cur) {
-    start_display(buffers->cur);
-  }
+  
+  display +=  new Buffer(bufferName, filePath);
+
+  display.start();
 
   //logging_end(XLOG);
   delete XLOG;
@@ -2166,20 +2409,20 @@ xstrcpy(char* str)
 
 
 /**
- * Concatenate two lines dropping terminating new line 
+ * Concatenate two lines dropping terminating new line
  * of first newline if it has one.
  */
 char*
 strlinecat(char * l0,char* l1)
-{ 
+{
   char* line  = (char*) realloc(l0, strlen(l0) + strlen(l1));
-  // 
+  //
   if(!line)
     return NULL;
-  // 
+  //
   while(*(l0++) && *(l0)!='\n') ;
-  // 
+  //
   while((*l0++ =  *l1++)) ;
-  // 
+  //
   return line;
 }
