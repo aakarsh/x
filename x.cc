@@ -22,10 +22,10 @@
 #include <memory>
 
 using namespace std;
-class AppProperties;
+class App;
 class Logger;
 
-class AppProperties {
+class App {
   friend class Logger;
 
 public:
@@ -36,11 +36,11 @@ public:
 };
 
 #ifdef DEBUG
-bool AppProperties::debugMode = true;
+bool App::debugMode = true;
 #else
-bool AppProperties::debugMode = false;
+bool App::debugMode = false;
 #endif
-string AppProperties::debugLogFile = "x-debug.log";
+string App::debugLogFile = "x-debug.log";
 
 const char* log_file ="x.log";
 
@@ -58,12 +58,12 @@ public:
 
   Logger():
       level(LOG_LEVEL_INFO)
-      , debugStream(AppProperties::debugLogFile, std::ofstream::out)
+      , debugStream(App::debugLogFile, std::ofstream::out)
   {
-    if(AppProperties::debugMode) {
+    if(App::debugMode) {
       this->level = LOG_LEVEL_DEBUG;
       this->debug_file = fopen("foo.log","w+");
-      this->debugStream.open(AppProperties::debugLogFile, std::ofstream::out);
+      this->debugStream.open(App::debugLogFile, std::ofstream::out);
     }
   }
 
@@ -73,7 +73,7 @@ public:
 
   void log(const string& str) {
     ostream &log = out();
-    if(AppProperties::debugMode) {
+    if(App::debugMode) {
       log<<str<<endl;
     }
     log.flush();
@@ -88,11 +88,11 @@ public:
   }
 };
 
-static Logger* AppProperties::debugLogger;
+static Logger* App::debugLogger;
 
-static Logger& AppProperties::logger() {
-  if(!AppProperties::debugLogger) {
-    AppProperties::debugLogger = new Logger();
+static Logger& App::logger() {
+  if(!App::debugLogger) {
+    App::debugLogger = new Logger();
   }  
   return *debugLogger;
 }
@@ -465,7 +465,7 @@ public:
 
   void displayBuffer(bool redisplay) {
 
-    AppProperties::logger().log("displayBuffer");
+    App::logger().log("displayBuffer");
 
     this->bufferWindow->moveCursor(this->cursorLine,this->cursorColumn);
 
@@ -2416,7 +2416,7 @@ main(int argc,char* argv[])
 {
 
   XLOG = new Logger(); //logging_init();
-  AppProperties::logger().log("x:started");
+  App::logger().log("x:started");
   Display display;
 
   string bufferName("x.cc");
@@ -2433,7 +2433,7 @@ main(int argc,char* argv[])
 
   //logging_end(XLOG);
   delete XLOG;
-  delete &(AppProperties::logger());
+  delete &(App::logger());
   return 0;
 }
 
