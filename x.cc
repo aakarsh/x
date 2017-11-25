@@ -12,6 +12,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <iostream>
 #include <fstream>
 #include <sstream>
 #include <vector>
@@ -21,13 +22,17 @@
 #include <memory>
 
 using namespace std;
+class AppProperties;
+class Logger;
 
 class AppProperties {
   friend class Logger;
-  
+
 public:
   static bool debugMode;
   static string debugLogFile;
+  static Logger* debugLogger;
+  static Logger& logger();
 };
 
 #ifdef DEBUG
@@ -35,7 +40,6 @@ bool AppProperties::debugMode = true;
 #else
 bool AppProperties::debugMode = false;
 #endif
-
 string AppProperties::debugLogFile = "x-debug.log";
 
 const char* log_file ="x.log";
@@ -44,31 +48,54 @@ enum log_level { LOG_LEVEL_INFO, LOG_LEVEL_DEBUG};
 
 class Logger {
 private:
+  static Logger* debugLogger;
+
 public:
   log_level level;
   FILE* debug_file;
-  ifstream debug_stream;
+  ofstream debugStream;
   static bool debug_mode;
 
   Logger():
       level(LOG_LEVEL_INFO)
-      , debug_stream(AppProperties::debugLogFile, std::ifstream::in)
+      , debugStream(AppProperties::debugLogFile, std::ofstream::out)
   {
     if(AppProperties::debugMode) {
       this->level = LOG_LEVEL_DEBUG;
-      this->debug_file = fopen(AppProperties::debugLogFile.c_str(),"w+");
-      this->debug_stream.open(AppProperties::debugLogFile, std::ifstream::in);
+      this->debug_file = fopen("foo.log","w+");
+      this->debugStream.open(AppProperties::debugLogFile, std::ofstream::out);
     }
   }
 
+  ostream& out(){
+    return this->debugStream;
+  }
+
+  void log(const string& str) {
+    ostream &log = out();
+    if(AppProperties::debugMode) {
+      log<<str<<endl;
+    }
+    log.flush();
+  }
+  
   ~Logger() {
 #ifdef DEBUG
+    this->debugStream.close();
     // this->debug_file.close();
     // fclose(this->debug_file);
 #endif
   }
 };
 
+static Logger* AppProperties::debugLogger;
+
+static Logger& AppProperties::logger() {
+  if(!AppProperties::debugLogger) {
+    AppProperties::debugLogger = new Logger();
+  }  
+  return *debugLogger;
+}
 
 class Line {
 public:
@@ -130,11 +157,11 @@ public:
   vector<Line*>& getLines() {
     return this->lines;
   }
-  
+
   bool isModified() {
     return this->modified;
   }
-  
+
   string getBufferName() {
     return this->bufferName;
   }
@@ -188,7 +215,7 @@ public:
 
     this->clear();
 
-    while(getline(in,line)) {
+    while(getline(in,line)) {// The whole file is read into mem
       Line* cur =  new Line(line_number,in.tellg(),0,line);
       lines.push_back(cur);
     }
@@ -239,10 +266,8 @@ public:
 
 };
 
-
-
 class DisplayWindow {
-  
+
 private:
   int numLines;
   int numColumns;
@@ -266,6 +291,9 @@ public:
                     numColumns,
                     beginY,
                     beginX);
+
+    // start with cursor at beginning
+    this->moveCursor(beginY,beginX);
   }
 
   int getNumLines() { return numLines; };
@@ -277,6 +305,7 @@ public:
 
   DisplayWindow& moveCursor(int y, int x){
     wmove(window,y,x);
+    wrefresh(window);
     return *this;
   }
 
@@ -286,7 +315,7 @@ public:
     wrefresh(window);
     return *this;
   }
-  
+
   DisplayWindow& displayLine(string line) {
     wprintw(window,line.c_str());
     wrefresh(window);
@@ -303,22 +332,13 @@ public:
 class Display;
 class DisplayCommand;
 class Mode;
+class NextLine;
+
 enum  DisplayMode { CommandMode = 0,
                     InsertMode  = 1,
                     SearchMode  = 2 };
 
-class DisplayCommand {
-  friend class Display;
-public:
-  virtual DisplayMode run(Display &display) = 0;
-};
 
-class DisplayNextLine : public DisplayCommand {  
-public:  
-  DisplayMode run(Display& display) {    
-    return CommandMode;
-  }  
-};
 
 typedef map<string,DisplayCommand*> keymap;
 
@@ -326,30 +346,40 @@ class Mode {
 private:
   string modeName;
   keymap modeMap;
-  
+
 public:
-  Mode(const string& name, const keymap &cmds) :    
+  Mode(const string& name, const keymap &cmds) :
      modeName(name)
     ,modeMap(cmds){}
-    
+
   DisplayCommand* lookup(const string& cmd) {
     return modeMap[cmd];
   }
+  string& getName() { return modeName; }
+
+};
+
+
+class DisplayCommand {
+  friend class Display;
+public:
+  virtual DisplayMode run (Display &display) = 0;
+};
+
+class NextLine : public DisplayCommand {
+  friend class Display;
+public:
+  DisplayMode run(Display& d);
 };
 
 
 class Display {
 
 private:
-
-
-
   vector<Mode*> modes;
 
   int height;
   int width;
-  int curserLine;
-  int cursorColumn;
 
   DisplayMode mode;
 
@@ -360,7 +390,10 @@ private:
 
   bool redisplay; // trigger a buffer-redisplay of buffer
   bool quit;      // quit will cause the display loop to exit.
-  //CommandKeyMap keymap
+
+  int cursorLine;
+  int cursorColumn;
+
 public:
 
   Display() : buffers(new BufferList()) {
@@ -375,17 +408,16 @@ public:
     this->bufferWindow  = new DisplayWindow(height-2,width,0,0);
 
     keymap cmdMap;
-    cmdMap["j"] =  new DisplayNextLine();
-    string cmdModeName("CMD");
-    
+    cmdMap.insert({"j",new NextLine()});
+
     this->modes.push_back(new Mode("CMD", cmdMap));
-    this->mode = CommandMode;    
+    this->mode = CommandMode;
     this->height -= 2; // leave space
 
     raw();
     refresh();
   }
-  
+
   Mode* getCurrentMode() {
     return this->modes[mode];
   }
@@ -395,88 +427,102 @@ public:
       mode = newMode;
     }
   }
-  
+
   void runCommand(const string& cmd) {
     if(cmd == "q") { // treat quit special for nwo
-      this->quit = true;      
+      this->quit = true;
     }else { // Need to look up command in the mode
       this->redisplay = false; // Don't do redisplay unless requested
-      
+
       Mode* mode = this->getCurrentMode();
-      
+
       if (!mode)
         return;
-      
+
       DisplayCommand* displayCommand = mode->lookup(cmd);
       if(!displayCommand)
         return;
 
       DisplayMode nextMode = displayCommand->run(*this);
       this->changeMode(nextMode);
-      
-    }    
+    }
   }
 
   void displayModeLine() {
     
     Buffer* currentBuffer =
       this->buffers->getCurrentBuffer();
-    
+
     string modified =
       currentBuffer->isModified() ? "*" : "-";
-    
+
     stringstream modeLine;
-    modeLine<<"["<<modified<<"] "<< currentBuffer->getBufferName();
+    modeLine<<"["<<modified<<"] "<< currentBuffer->getBufferName()
+            <<" ------ " << "["<< this->getCurrentMode()->getName() <<"]";
 
     this->modeWindow->displayLine(0,0,modeLine.str());
   }
 
   void displayBuffer(bool redisplay) {
 
-    this->bufferWindow->moveCursor(this->curserLine,this->cursorColumn);
-    
+    AppProperties::logger().log("displayBuffer");
+
+    this->bufferWindow->moveCursor(this->cursorLine,this->cursorColumn);
+
     Buffer* buffer =
       this->buffers->getCurrentBuffer();
-    
+
     vector<Line*> lines = buffer->getLines();
+
     int lineCount;
     for(auto it = lines.begin() ; it != lines.end(); it++){
-      if(lineCount >= this->bufferWindow->getNumLines())
+
+      if(lineCount >= this->bufferWindow->getNumLines()) {
         break;
+      }
+
       this->bufferWindow->displayLine((*it)->data);
       this->bufferWindow->displayLine("\n");
       lineCount++;
     }
+
+    // rewind to beginning
+    this->bufferWindow->moveCursor(this->cursorLine,this->cursorColumn);
+  }
+
+  void moveCursorNextLine() {
+    this->cursorLine++;
+  }
+
+  void markRedisplay() {
+    this->redisplay = true;
   }
 
   void start() {
     this->quit = false;
-    
-    while(!this->quit) { // quit      
+
+    while(!this->quit) { // quit
       noecho();
 
-      // main buffer 
-      this->displayBuffer(true);
-      
-      // mode line 
+      // mode line
       this->displayModeLine();
+
+      // main buffer
+      this->displayBuffer(true);
 
       // trigger command
       string cmd(1,getch());
       this->runCommand(cmd);
-      
+
       // run the next command till redisplay becomes necessary
       while(!this->redisplay && !this->quit) {
         this->runCommand(string(1,getch()));   // get-input
       }
-      
       // need to reset to do a redisplay
       this->redisplay = false;
     }
-    
     return;
   }
-
 
   /**
    * Display will handle the life cycle of th
@@ -488,16 +534,23 @@ public:
     return *this;
   }
 
-  ~Display(){    
-    endwin();    
+  ~Display(){
+    endwin();
     // display manages buffers and its windows.
     delete buffers;
     delete modeWindow;
     delete bufferWindow;
   }
-
 };
-  
+
+/**
+ * Moving to next line
+ */
+DisplayMode NextLine::run(Display& d) {
+  d.moveCursorNextLine();
+  d.markRedisplay();
+  return CommandMode;
+}
 
 #define ARRAY_SIZE(x) ((sizeof x) / (sizeof *x))
 char* strlinecat(char * l0,char* l1);
@@ -1659,19 +1712,17 @@ bool
 display_move_line_down(struct display* display,
                        void* misc)
 {
-  bool redisplay = false;
   if(display_on_last_linep(display)) {
     move(display->cursor_line,display->cursor_column);
-    return redisplay;
-  }
-  if(display->cursor_line + 1 >= display->height)  {
+    return false;
+  } else if(display->cursor_line + 1 >= display->height)  {
     display->cursor_line =0;
-    redisplay = true;
     display_pg_down(display);
+    return true;
   } else {
     display_line_down(display);
+    return false;
   }
-  return redisplay;
 }
 
 bool
@@ -2174,7 +2225,7 @@ display_run_cmd(struct display* display,void* misc)
       commands[i].display_cmd(display,misc);
     }
   }
-  
+
   return true;
 }
 
@@ -2365,23 +2416,24 @@ main(int argc,char* argv[])
 {
 
   XLOG = new Logger(); //logging_init();
-  
+  AppProperties::logger().log("x:started");
   Display display;
-  
+
   string bufferName("x.cc");
   string filePath("/home/aakarsh/src/c/x/x.cc");
-  
+
   if(argc > 1) {     // add buffer to display
     bufferName = argv[1];
     filePath   = argv[1];
   }
-  
+
   display +=  new Buffer(bufferName, filePath);
 
   display.start();
 
   //logging_end(XLOG);
   delete XLOG;
+  delete &(AppProperties::logger());
   return 0;
 }
 
