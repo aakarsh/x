@@ -112,14 +112,14 @@ public:
   string data;
 
   Line(int line_no,
-       streampos  fpos,
+       streampos fpos,
        int lpos) :
     line_number(line_no)
     ,file_position(fpos)
     ,line_pos(lpos) {}
 
   Line(int line_no,
-       streampos  fpos,
+       streampos fpos,
        int lpos,
        string& data):
 
@@ -258,13 +258,6 @@ public:
     return *this;
   }
 
-  BufferList &operator+=(Buffer* buffer) {
-    return this->append(*buffer);
-  }
-
-  BufferList &operator+=(Buffer& buffer) {
-    return this->append(buffer);
-  }
 
   int numBuffers()  {
     return this->buffers.size();
@@ -353,8 +346,6 @@ class NextLine;
 enum  DisplayMode { CommandMode = 0,
                     InsertMode  = 1,
                     SearchMode  = 2 };
-
-
 
 typedef map<string,DisplayCommand*> keymap;
 
@@ -565,10 +556,9 @@ public:
    * Display will handle the life cycle of th
    * buffer once it has been added to display's
    * buffer list.
-   */
-  Display &operator+=(Buffer* buffer) {
+   */  
+  void appendBuffer(Buffer* buffer) {
     this->buffers->append(buffer);
-    return *this;
   }
 
   ~Display(){
@@ -589,7 +579,6 @@ DisplayMode MoveLine::run(Display& d, const string &cmd) {
   } else {
     d.moveCursorLine(-1);
   }
-  //d.markRedisplay();
   return CommandMode;
 }
 
@@ -2470,7 +2459,7 @@ main(int argc,char* argv[])
     filePath   = argv[1];
   }
 
-  display +=  new Buffer(bufferName, filePath);
+  display.appendBuffer(new Buffer(bufferName, filePath));
 
   display.start();
 
