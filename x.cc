@@ -303,6 +303,10 @@ public:
     return numLines;
   };
 
+  int getNumColumns() {
+    return numColumns;
+  };
+
   void rewind() {
     moveCursor(beginY,beginX);
   }
@@ -369,14 +373,37 @@ public:
 
 class DisplayCommand {
   friend class Display;
+  vector<string> keys;
 public:
+  DisplayCommand() {};
+  DisplayCommand(vector<string> & ks):keys(ks) {};
+
+  vector<string> & getKeys() {
+    return this->keys;
+  }
+  
+  void keymapAdd(keymap& map) {
+    for(auto &key : getKeys()) {
+      map.insert({key,this});
+    }
+  }
+  
   virtual DisplayMode run (Display &display, const string& cmd ) = 0;
 };
 
 class MoveLine : public DisplayCommand {
-public: DisplayMode run(Display& d, const string &cmd );
+public:
+  MoveLine(): DisplayCommand() {};
+  MoveLine(vector<string> & ks): DisplayCommand(ks) {};
+  DisplayMode run(Display& d, const string &cmd );
 };
 
+class MoveColumn : public DisplayCommand {
+public:
+  MoveColumn(): DisplayCommand() {};
+  MoveColumn(vector<string> & ks): DisplayCommand(ks) {};
+  DisplayMode run(Display& d, const string &cmd);
+};
 
 class Display {
 
@@ -399,6 +426,7 @@ private:
   int cursorLine = 0;
   int cursorColumn = 0;
 
+
 public:
 
   Display() : buffers(new BufferList()) {
@@ -413,8 +441,13 @@ public:
     this->bufferWindow  = new DisplayWindow(height-2,width,0,0);
 
     keymap cmdMap;
-    cmdMap.insert({"j",new MoveLine()});
-    cmdMap.insert({"k",new MoveLine()});
+
+    vector<string> move_line_keys {"j","^n","k","^p"};
+    (new MoveLine(move_line_keys))->keymapAdd(cmdMap);
+
+    vector<string> move_col_keys {"l","h","^b","^f"};
+    (new MoveColumn(move_col_keys))->keymapAdd(cmdMap);
+;    
 
     this->modes.push_back(new Mode("CMD", cmdMap));
     this->mode = CommandMode;
@@ -423,6 +456,7 @@ public:
     raw();
     refresh();
   }
+
 
   Mode* getCurrentMode() {
     return this->modes[mode];
@@ -495,20 +529,55 @@ public:
     this->bufferWindow->rewind();
   }
 
-  void moveCursorLine(int inc) {
-    int windowPadding = 2;
-    this->cursorLine += inc;
-    int bufferMaxHeight = this->bufferWindow->getNumLines() -windowPadding;
-    int bufferMinHeight = 0;
-    if(this->cursorLine  > bufferMaxHeight)
-      this->cursorLine = bufferMinHeight;
-    else if(this->cursorLine < bufferMinHeight) {
-      this->cursorLine = bufferMinHeight;
+  int box(int value,
+          pair<int,int>  limits,
+          pair<int,int>  padding) {
+    
+    int min = limits.first  - padding.first;
+    int max = limits.second - padding.second;
+    
+    if(value  >= max)
+      return max;
+    else if(value <= min) {
+      return min;
+    } else {
+      return value;
     }
+  }
+  
+  void moveCursorLine(int inc) {
+    int windowPadding = 1;
+    this->cursorLine =
+      box(this->cursorLine + inc,
+          {0, this->bufferWindow->getNumLines()},
+          {0, windowPadding});
+  }
+
+  void moveCursorColumn(int inc) {
+    int windowPadding = 0;
+    this->cursorColumn =
+      box(this->cursorColumn +inc,
+          {0,this->bufferWindow->getNumColumns()},
+          {0,windowPadding});
   }
 
   void markRedisplay() {
     this->redisplay = true;
+  }
+
+  const string parseCommand() {
+    char cur = getch();
+    string c(1,cur);
+    //011111// low bytes are1
+    // control characters
+    vector<char> ctrl_mod = {'n','p'};
+    for(auto &k : ctrl_mod) { 
+      if(cur == (k  & 037)) { //character has been CTRL modified
+        return (string("^") + string(1,k));
+      }
+    }
+    string kn(keyname(cur));
+    return c;
   }
 
   void start() {
@@ -527,13 +596,12 @@ public:
       this->displayVisibleCursor();
 
       // trigger command
-      string cmd(1,getch());
-      this->runCommand(cmd);
+      this->runCommand(parseCommand());
       //
 
       // run the next command till redisplay becomes necessary
       while(!this->redisplay && !this->quit) {
-        this->runCommand(string(1,getch()));   // get-input
+        this->runCommand(parseCommand());   // get-input
         // move the window to current place
         
         this->displayVisibleCursor();
@@ -574,10 +642,21 @@ public:
  * Moving to next line
  */
 DisplayMode MoveLine::run(Display& d, const string &cmd) {
-  if(cmd == "j"){
-    d.moveCursorLine(+1); // move the cursor but dont do a redisplay
+  if(cmd == "j"|| cmd == "^n"){
+    // Move the cursor but dont do a redisplay
+    d.moveCursorLine(+1);
   } else {
     d.moveCursorLine(-1);
+  }
+  return CommandMode;
+}
+
+DisplayMode MoveColumn::run(Display& d, const string &cmd) {
+  if(cmd == "l"|| cmd == "^f"){
+    // Move the cursor but dont do a redisplay
+    d.moveCursorColumn(+1);
+  } else {
+    d.moveCursorColumn(-1);
   }
   return CommandMode;
 }
