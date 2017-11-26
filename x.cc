@@ -48,6 +48,7 @@ enum log_level { LOG_LEVEL_INFO, LOG_LEVEL_DEBUG};
 
 class Logger {
 private:
+  // static instance of logger.
   static Logger* debugLogger;
 
 public:
@@ -58,12 +59,14 @@ public:
 
   Logger():
       level(LOG_LEVEL_INFO)
-      , debugStream(App::debugLogFile, std::ofstream::out)
+      ,debugStream(App::debugLogFile,
+                   std::ofstream::out)
   {
     if(App::debugMode) {
       this->level = LOG_LEVEL_DEBUG;
       this->debug_file = fopen("foo.log","w+");
-      this->debugStream.open(App::debugLogFile, std::ofstream::out);
+      this->debugStream.open(App::debugLogFile,
+                             std::ofstream::out);
     }
   }
 
@@ -71,29 +74,30 @@ public:
     return this->debugStream;
   }
 
-  void log(const string& str) {
+  Logger& log(const string& str) {
     ostream &log = out();
     if(App::debugMode) {
       log<<str<<endl;
     }
     log.flush();
+    return *this;
   }
-  
+
   ~Logger() {
 #ifdef DEBUG
     this->debugStream.close();
-    // this->debug_file.close();
-    // fclose(this->debug_file);
+    //this->debug_file.close();
+    fclose(this->debug_file);
 #endif
   }
 };
 
-static Logger* App::debugLogger;
+Logger* App::debugLogger;
 
-static Logger& App::logger() {
+Logger& App::logger() {
   if(!App::debugLogger) {
     App::debugLogger = new Logger();
-  }  
+  }
   return *debugLogger;
 }
 
@@ -107,12 +111,18 @@ public:
   // Line Data
   string data;
 
-  Line(int line_no, streampos  fpos, int lpos):
+  Line(int line_no,
+       streampos  fpos,
+       int lpos) :
     line_number(line_no)
     ,file_position(fpos)
     ,line_pos(lpos) {}
 
-  Line(int line_no, streampos  fpos, int lpos,string& data):
+  Line(int line_no,
+       streampos  fpos,
+       int lpos,
+       string& data):
+
     line_number(line_no)
     ,file_position(fpos)
     ,line_pos(lpos)
@@ -296,7 +306,13 @@ public:
     this->moveCursor(beginY,beginX);
   }
 
-  int getNumLines() { return numLines; };
+  int getNumLines() {
+    return numLines;
+  };
+
+  void rewind() {
+    moveCursor(beginY,beginX);
+  }
 
   DisplayWindow& refresh() {
     wrefresh(window);
@@ -363,13 +379,11 @@ public:
 class DisplayCommand {
   friend class Display;
 public:
-  virtual DisplayMode run (Display &display) = 0;
+  virtual DisplayMode run (Display &display, const string& cmd ) = 0;
 };
 
-class NextLine : public DisplayCommand {
-  friend class Display;
-public:
-  DisplayMode run(Display& d);
+class MoveLine : public DisplayCommand {
+public: DisplayMode run(Display& d, const string &cmd );
 };
 
 
@@ -391,8 +405,8 @@ private:
   bool redisplay; // trigger a buffer-redisplay of buffer
   bool quit;      // quit will cause the display loop to exit.
 
-  int cursorLine;
-  int cursorColumn;
+  int cursorLine = 0;
+  int cursorColumn = 0;
 
 public:
 
@@ -408,7 +422,8 @@ public:
     this->bufferWindow  = new DisplayWindow(height-2,width,0,0);
 
     keymap cmdMap;
-    cmdMap.insert({"j",new NextLine()});
+    cmdMap.insert({"j",new MoveLine()});
+    cmdMap.insert({"k",new MoveLine()});
 
     this->modes.push_back(new Mode("CMD", cmdMap));
     this->mode = CommandMode;
@@ -443,13 +458,13 @@ public:
       if(!displayCommand)
         return;
 
-      DisplayMode nextMode = displayCommand->run(*this);
+      DisplayMode nextMode = displayCommand->run(*this,cmd);
       this->changeMode(nextMode);
     }
   }
 
   void displayModeLine() {
-    
+
     Buffer* currentBuffer =
       this->buffers->getCurrentBuffer();
 
@@ -460,14 +475,14 @@ public:
     modeLine<<"["<<modified<<"] "<< currentBuffer->getBufferName()
             <<" ------ " << "["<< this->getCurrentMode()->getName() <<"]";
 
+    // rpait mode at 0 0
     this->modeWindow->displayLine(0,0,modeLine.str());
   }
 
   void displayBuffer(bool redisplay) {
 
     App::logger().log("displayBuffer");
-
-    this->bufferWindow->moveCursor(this->cursorLine,this->cursorColumn);
+    this->bufferWindow->rewind();
 
     Buffer* buffer =
       this->buffers->getCurrentBuffer();
@@ -480,18 +495,25 @@ public:
       if(lineCount >= this->bufferWindow->getNumLines()) {
         break;
       }
-
+      // iterate through the lines going to cursor poistion
       this->bufferWindow->displayLine((*it)->data);
       this->bufferWindow->displayLine("\n");
       lineCount++;
     }
-
-    // rewind to beginning
-    this->bufferWindow->moveCursor(this->cursorLine,this->cursorColumn);
+    // rewind to beginning -
+    this->bufferWindow->rewind();
   }
 
-  void moveCursorNextLine() {
-    this->cursorLine++;
+  void moveCursorLine(int inc) {
+    int windowPadding = 2;
+    this->cursorLine += inc;
+    int bufferMaxHeight = this->bufferWindow->getNumLines() -windowPadding;
+    int bufferMinHeight = 0;
+    if(this->cursorLine  > bufferMaxHeight)
+      this->cursorLine = bufferMinHeight;
+    else if(this->cursorLine < bufferMinHeight) {
+      this->cursorLine = bufferMinHeight;
+    }
   }
 
   void markRedisplay() {
@@ -510,18 +532,33 @@ public:
       // main buffer
       this->displayBuffer(true);
 
+      // move visible cursor
+      this->displayVisibleCursor();
+
       // trigger command
       string cmd(1,getch());
       this->runCommand(cmd);
+      //
 
       // run the next command till redisplay becomes necessary
       while(!this->redisplay && !this->quit) {
         this->runCommand(string(1,getch()));   // get-input
+        // move the window to current place
+        
+        this->displayVisibleCursor();
+        App::logger().log("cursorLine");
+
+       
       }
       // need to reset to do a redisplay
       this->redisplay = false;
     }
     return;
+  }
+
+  void displayVisibleCursor(){
+    move(this->cursorLine, this->cursorColumn);
+    refresh(); // refresh to see cursor.
   }
 
   /**
@@ -546,11 +583,17 @@ public:
 /**
  * Moving to next line
  */
-DisplayMode NextLine::run(Display& d) {
-  d.moveCursorNextLine();
-  d.markRedisplay();
+DisplayMode MoveLine::run(Display& d, const string &cmd) {
+  if(cmd == "j"){
+    d.moveCursorLine(+1); // move the cursor but dont do a redisplay
+  } else {
+    d.moveCursorLine(-1);
+  }
+  //d.markRedisplay();
   return CommandMode;
 }
+
+
 
 #define ARRAY_SIZE(x) ((sizeof x) / (sizeof *x))
 char* strlinecat(char * l0,char* l1);
@@ -2432,8 +2475,9 @@ main(int argc,char* argv[])
   display.start();
 
   //logging_end(XLOG);
+
   delete XLOG;
-  delete &(App::logger());
+  delete &(App::logger()); // close log file
   return 0;
 }
 
