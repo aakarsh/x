@@ -54,24 +54,24 @@ private:
 public:
   log_level level;
   FILE* debug_file;
-  ofstream debugStream;
+  ofstream debug_stream;
   static bool debug_mode;
 
   logger():
       level(LOG_LEVEL_INFO)
-      ,debugStream(app::debug_log_file,
+      ,debug_stream(app::debug_log_file,
                    std::ofstream::out)
   {
     if(app::debug_mode) {
       this->level = LOG_LEVEL_DEBUG;
       this->debug_file = fopen("foo.log","w+");
-      this->debugStream.open(app::debug_log_file,
+      this->debug_stream.open(app::debug_log_file,
                              std::ofstream::out);
     }
   }
 
   ostream& out(){
-    return this->debugStream;
+    return this->debug_stream;
   }
 
   logger& log(const string& str) {
@@ -85,7 +85,7 @@ public:
 
   ~logger() {
 #ifdef DEBUG
-    this->debugStream.close();
+    this->debug_stream.close();
     //this->debug_file.close();
     fclose(this->debug_file);
 #endif
@@ -146,7 +146,7 @@ private:
   const string buffer_name;
 
   // file stream backing the buffer.
-  fstream bufferStream;
+  fstream buffer_stream;
 
   buffer_error error_code;
 
@@ -184,24 +184,24 @@ public:
   buf(string name, string path):
       file_path(path)
     , buffer_name(name)
-    , bufferStream(path, ios_base::in)  {
+    , buffer_stream(path, ios_base::in)  {
 
-    if(bufferStream.rdstate() && std::ifstream::failbit != 0) {
+    if(buffer_stream.rdstate() && std::ifstream::failbit != 0) {
       error_code = buffer_noerror;
       return;
     }
 
-    this->fill(bufferStream);
+    this->fill(buffer_stream);
   }
 
   ~buf() {
     // close open file
-    bufferStream.close();
+    buffer_stream.close();
     // free all lines.
     this->clear();
   }
 
-  bool isErrorState() {
+  bool is_error_state() {
     return error_code != buffer_noerror;
   }
 
@@ -297,7 +297,7 @@ public:
                     beginX);
 
     // start with cursor at beginning
-    this->moveCursor(beginY,beginX);
+    this->move_cursor(beginY,beginX);
   }
 
   int get_height() {
@@ -309,7 +309,7 @@ public:
   };
 
   void rewind() {
-    moveCursor(beginY,beginX);
+    move_cursor(beginY,beginX);
   }
 
   display_window& refresh() {
@@ -317,7 +317,7 @@ public:
     return *this;
   }
 
-  display_window& moveCursor(int y, int x){
+  display_window& move_cursor(int y, int x){
     wmove(window,y,x);
     wrefresh(window);
     return *this;
@@ -529,8 +529,8 @@ public:
   }
 
   void display_buffer() {
-
     app::get_logger().log("display_buffer");
+    
     this->buffer_window->rewind();
 
     buf* buffer =
@@ -719,7 +719,6 @@ public:
 editor_mode move_line::run(editor& d, const string &cmd) {
   if(cmd == "j"|| cmd == "^n"){
     // Move the cursor but dont do a redisplay
-    //d.moveCursorLine(+1);
     d.move_point(1,editor::move_y);
   } else {
     d.move_point(-1,editor::move_y);
