@@ -164,11 +164,11 @@ private:
 
 public:
 
-  vector<Line*>& getLines() {
+  vector<Line*>& get_lines() {
     return this->lines;
   }
 
-  bool isModified() {
+  bool is_modified() {
     return this->modified;
   }
 
@@ -238,13 +238,13 @@ class BufferList {
 
 private:
   vector<Buffer*> buffers;
-  Buffer* currentBuffer;
+  Buffer* current_buffer;
 
 public:
   BufferList() = default;
 
   BufferList(Buffer* first):
-    currentBuffer(first) {
+    current_buffer(first) {
     this->buffers.push_back(first);
   }
 
@@ -254,7 +254,7 @@ public:
 
   BufferList& append(Buffer& buffer) {
     this->buffers.push_back(&buffer);
-    this->currentBuffer = &buffer;
+    this->current_buffer = &buffer;
     return *this;
   }
 
@@ -263,13 +263,14 @@ public:
     return this->buffers.size();
   }
 
-  Buffer* getCurrentBuffer() {
-    return this->currentBuffer;
+
+  Buffer* get_current_buffer() {
+    return this->current_buffer;
   }
 
 };
 
-class DisplayWindow {
+class display_window {
 
 private:
   int numLines;
@@ -281,10 +282,10 @@ private:
 
 public:
   // using managed resource window
-  DisplayWindow () = delete;
-  DisplayWindow& operator=(const DisplayWindow& ) = delete;
+  display_window () = delete;
+  display_window& operator=(const display_window& ) = delete;
 
-  DisplayWindow(int nl, int nc,int by, int bx):
+  display_window(int nl, int nc,int by, int bx):
      numLines(nl)
     ,numColumns(nc)
     ,beginY(by)
@@ -299,11 +300,11 @@ public:
     this->moveCursor(beginY,beginX);
   }
 
-  int getNumLines() {
+  int get_height() {
     return numLines;
   };
 
-  int getNumColumns() {
+  int get_width() {
     return numColumns;
   };
 
@@ -311,47 +312,47 @@ public:
     moveCursor(beginY,beginX);
   }
 
-  DisplayWindow& refresh() {
+  display_window& refresh() {
     wrefresh(window);
     return *this;
   }
 
-  DisplayWindow& moveCursor(int y, int x){
+  display_window& moveCursor(int y, int x){
     wmove(window,y,x);
     wrefresh(window);
     return *this;
   }
 
-  DisplayWindow& displayLine(int y, int x, string line) {
+  display_window& display_line(int y, int x, string line) {
     wmove(window,y,x);
     wprintw(window,line.c_str());
     wrefresh(window);
     return *this;
   }
 
-  DisplayWindow& displayLine(string line) {
+  display_window& display_line(string line) {
     wprintw(window,line.c_str());
     wrefresh(window);
     return *this;
   }
 
-  ~DisplayWindow() {
+  ~display_window() {
     delwin(window);
   }
 
 };
 
 
-class Display;
-class DisplayCommand;
+class editor;
+class editor_command;
 class Mode;
 class NextLine;
 
-enum  DisplayMode { CommandMode = 0,
+enum  editor_mode { CommandMode = 0,
                     InsertMode  = 1,
                     SearchMode  = 2 };
 
-typedef map<string,DisplayCommand*> keymap;
+typedef map<string,editor_command*> keymap;
 
 class Mode {
 private:
@@ -363,7 +364,7 @@ public:
      modeName(name)
     ,modeMap(cmds){}
 
-  DisplayCommand* lookup(const string& cmd) {
+  editor_command* lookup(const string& cmd) {
     return modeMap[cmd];
   }
   string& getName() { return modeName; }
@@ -371,88 +372,103 @@ public:
 };
 
 
-class DisplayCommand {
-  friend class Display;
+class editor_command {
+  friend class editor;
   vector<string> keys;
 public:
-  DisplayCommand() {};
-  DisplayCommand(vector<string> & ks):keys(ks) {};
+  editor_command() {};
+  editor_command(vector<string> & ks):keys(ks) {};
 
   vector<string> & getKeys() {
     return this->keys;
   }
   
-  void keymapAdd(keymap& map) {
+  void keymap_add(keymap& map) {
     for(auto &key : getKeys()) {
       map.insert({key,this});
     }
   }
   
-  virtual DisplayMode run (Display &display, const string& cmd ) = 0;
+  virtual editor_mode run (editor &display, const string& cmd ) = 0;
 };
 
-class MoveLine : public DisplayCommand {
+class move_line : public editor_command {
 public:
-  MoveLine(): DisplayCommand() {};
-  MoveLine(vector<string> & ks): DisplayCommand(ks) {};
-  DisplayMode run(Display& d, const string &cmd );
+  move_line(): editor_command() {};
+  move_line(vector<string> & ks): editor_command(ks) {};
+  editor_mode run(editor& d, const string &cmd );
 };
 
-class MoveColumn : public DisplayCommand {
+class move_column : public editor_command {
 public:
-  MoveColumn(): DisplayCommand() {};
-  MoveColumn(vector<string> & ks): DisplayCommand(ks) {};
-  DisplayMode run(Display& d, const string &cmd);
+  move_column(): editor_command() {};
+  move_column(vector<string> & ks): editor_command(ks) {};
+  editor_mode run(editor& d, const string &cmd);
 };
 
-class Display {
+
+class MovePage : public editor_command {
+public:
+  MovePage(): editor_command() {};
+  MovePage(vector<string> & ks): editor_command(ks) {};
+  editor_mode run(editor& d, const string &cmd );
+};
+
+class editor {
 
 private:
   vector<Mode*> modes;
 
-  int height;
-  int width;
+  int screen_height;
+  int screen_width;
+  int mode_padding = 2;
+  editor_mode mode;
 
-  DisplayMode mode;
-
-  DisplayWindow *modeWindow;
-  DisplayWindow *bufferWindow;
+  display_window *mode_window;
+  display_window *buffer_window;
 
   BufferList *buffers;
 
   bool redisplay; // trigger a buffer-redisplay of buffer
   bool quit;      // quit will cause the display loop to exit.
 
-  int cursorLine = 0;
-  int cursorColumn = 0;
+  typedef pair<int,int> point;
 
-
+  point cursor;
+  int start_line = 0;
+  
 public:
+  enum move_dir { move_y = 0 , move_x };
 
-  Display() : buffers(new BufferList()) {
+  editor() : buffers(new BufferList()) {
 
     // determine the screen
     initscr();
 
-    // initialized the height and width
-    getmaxyx(stdscr, this->height, this->width);
+    // initialized the screen_height and screen_width
+    getmaxyx(stdscr, this->screen_height, this->screen_width);
 
-    this->modeWindow    = new DisplayWindow(height-1,width,height-2,0);
-    this->bufferWindow  = new DisplayWindow(height-2,width,0,0);
-
-    keymap cmdMap;
+    this->mode_window    =
+      new display_window(screen_height-1,
+                        screen_width,
+                        screen_height-mode_padding, // beginY
+                        0);
+    this->buffer_window  =
+      new display_window(screen_height- mode_padding, // num lines 
+                        screen_width,    // num cols 
+                        0,               // beginY
+                        0);              // beginX
+    
+    keymap cmd_map;
 
     vector<string> move_line_keys {"j","^n","k","^p"};
-    (new MoveLine(move_line_keys))->keymapAdd(cmdMap);
+    (new move_line(move_line_keys))->keymap_add(cmd_map);
 
     vector<string> move_col_keys {"l","h","^b","^f"};
-    (new MoveColumn(move_col_keys))->keymapAdd(cmdMap);
-;    
+    (new move_column(move_col_keys))->keymap_add(cmd_map);
 
-    this->modes.push_back(new Mode("CMD", cmdMap));
+    this->modes.push_back(new Mode("CMD", cmd_map));
     this->mode = CommandMode;
-    this->height -= 2; // leave space
-
     raw();
     refresh();
   }
@@ -462,7 +478,7 @@ public:
     return this->modes[mode];
   }
 
-  void changeMode(DisplayMode newMode) {
+  void changeMode(editor_mode newMode) {
     if(newMode!= mode){
       mode = newMode;
     }
@@ -479,60 +495,69 @@ public:
       if (!mode)
         return;
 
-      DisplayCommand* displayCommand = mode->lookup(cmd);
-      if(!displayCommand)
+      editor_command* editor_command = mode->lookup(cmd);
+      if(!editor_command)
         return;
 
-      DisplayMode nextMode = displayCommand->run(*this,cmd);
+      editor_mode nextMode = editor_command->run(*this,cmd);
       this->changeMode(nextMode);
     }
   }
 
-  void displayModeLine() {
+  void display_mode_line() {
 
-    Buffer* currentBuffer =
-      this->buffers->getCurrentBuffer();
+    Buffer* current_buffer =
+      this->buffers->get_current_buffer();
 
     string modified =
-      currentBuffer->isModified() ? "*" : "-";
+      current_buffer->is_modified() ? "*" : "-";
 
-    stringstream modeLine;
-    modeLine<<"["<<modified<<"] "<< currentBuffer->getBufferName()
+    stringstream mode_line;
+    mode_line<<"["<<modified<<"] "<< current_buffer->getBufferName()
             <<" ------ " << "["<< this->getCurrentMode()->getName() <<"]";
 
     // rpait mode at 0 0
-    this->modeWindow->displayLine(0,0,modeLine.str());
+    this->mode_window->display_line(0, 0, mode_line.str());
   }
 
-  void displayBuffer(bool redisplay) {
+  void display_buffer(bool redisplay) {
 
-    App::logger().log("displayBuffer");
-    this->bufferWindow->rewind();
+    App::logger().log("display_buffer");
+    this->buffer_window->rewind();
 
     Buffer* buffer =
-      this->buffers->getCurrentBuffer();
+      this->buffers->get_current_buffer();
 
-    vector<Line*> lines = buffer->getLines();
+    vector<Line*> lines = buffer->get_lines();
 
     int lineCount;
-    for(auto it = lines.begin() ; it != lines.end(); it++){
 
-      if(lineCount >= this->bufferWindow->getNumLines()) {
+    for(auto line_ptr : lines) { 
+      if(lineCount >=
+         this->buffer_window->get_height()) {
         break;
       }
+
+      if(lineCount < start_line) {
+        continue;
+      }
+      
       // iterate through the lines going to cursor poistion
-      this->bufferWindow->displayLine((*it)->data);
-      this->bufferWindow->displayLine("\n");
+      this->buffer_window->display_line(line_ptr->data);
+      this->buffer_window->display_line("\n");
       lineCount++;
     }
     // rewind to beginning -
-    this->bufferWindow->rewind();
+    this->buffer_window->rewind();
   }
 
+  /**
+   * Box value withing limits with included 
+   * padding.
+   */
   int box(int value,
           pair<int,int>  limits,
-          pair<int,int>  padding) {
-    
+          pair<int,int>  padding) {    
     int min = limits.first  - padding.first;
     int max = limits.second - padding.second;
     
@@ -544,21 +569,33 @@ public:
       return value;
     }
   }
-  
-  void moveCursorLine(int inc) {
-    int windowPadding = 1;
-    this->cursorLine =
-      box(this->cursorLine + inc,
-          {0, this->bufferWindow->getNumLines()},
-          {0, windowPadding});
+
+  point make_point(int y, int x){
+    return make_pair(y,x);
   }
 
-  void moveCursorColumn(int inc) {
-    int windowPadding = 0;
-    this->cursorColumn =
-      box(this->cursorColumn +inc,
-          {0,this->bufferWindow->getNumColumns()},
-          {0,windowPadding});
+  point inc_point(point& p, int inc, int dir) {
+    if(dir == 0) {
+      return make_point(box(p.first+inc,
+                            {0, this->buffer_window->get_height()},
+                            {0, this->mode_padding})
+                        ,p.second);
+    } else{
+      return make_point(p.first,
+                        box(p.second + inc,
+                            {0,this->buffer_window->get_width()},
+                            {0,this->mode_padding}));
+    }
+  }
+
+  void move_point(int inc, move_dir dir) {
+    this->cursor = inc_point(cursor,inc,dir);
+
+  }
+
+
+  void movePage(int pg) {
+    
   }
 
   void markRedisplay() {
@@ -568,14 +605,22 @@ public:
   const string parseCommand() {
     char cur = getch();
     string c(1,cur);
-    //011111// low bytes are1
-    // control characters
-    vector<char> ctrl_mod = {'n','p'};
-    for(auto &k : ctrl_mod) { 
+    
+    vector<char> alphabet;    
+    char start = 'a';
+    while(start < 'z')
+      alphabet.push_back(start++);
+    
+    start = 'A';
+    while(start < 'Z')
+      alphabet.push_back(start++);
+    
+    for(auto & k : alphabet) {
       if(cur == (k  & 037)) { //character has been CTRL modified
         return (string("^") + string(1,k));
       }
     }
+    
     string kn(keyname(cur));
     return c;
   }
@@ -587,13 +632,13 @@ public:
       noecho();
 
       // mode line
-      this->displayModeLine();
+      this->display_mode_line();
 
       // main buffer
-      this->displayBuffer(true);
+      this->display_buffer(true);
 
       // move visible cursor
-      this->displayVisibleCursor();
+      this->display_cursor();
 
       // trigger command
       this->runCommand(parseCommand());
@@ -604,8 +649,8 @@ public:
         this->runCommand(parseCommand());   // get-input
         // move the window to current place
         
-        this->displayVisibleCursor();
-        App::logger().log("cursorLine");
+        this->display_cursor();
+        App::logger().log("cursor_line");
 
        
       }
@@ -615,13 +660,13 @@ public:
     return;
   }
 
-  void displayVisibleCursor(){
-    move(this->cursorLine, this->cursorColumn);
+  void display_cursor(){
+    move(this->cursor.first, this->cursor.second);
     refresh(); // refresh to see cursor.
   }
 
   /**
-   * Display will handle the life cycle of th
+   * editor will handle the life cycle of th
    * buffer once it has been added to display's
    * buffer list.
    */  
@@ -629,38 +674,38 @@ public:
     this->buffers->append(buffer);
   }
 
-  ~Display(){
+  ~editor(){
     endwin();
     // display manages buffers and its windows.
     delete buffers;
-    delete modeWindow;
-    delete bufferWindow;
+    delete mode_window;
+    delete buffer_window;
   }
 };
 
+// display motion commands.
 /**
  * Moving to next line
  */
-DisplayMode MoveLine::run(Display& d, const string &cmd) {
+editor_mode move_line::run(editor& d, const string &cmd) {
   if(cmd == "j"|| cmd == "^n"){
     // Move the cursor but dont do a redisplay
-    d.moveCursorLine(+1);
+    //d.moveCursorLine(+1);
+    d.move_point(1,editor::move_y);
   } else {
-    d.moveCursorLine(-1);
+    d.move_point(-1,editor::move_y);
   }
   return CommandMode;
 }
 
-DisplayMode MoveColumn::run(Display& d, const string &cmd) {
+editor_mode move_column::run(editor& d, const string &cmd) {
   if(cmd == "l"|| cmd == "^f"){
-    // Move the cursor but dont do a redisplay
-    d.moveCursorColumn(+1);
+    d.move_point(1,editor::move_x);    // move the cursor but dont do a redisplay
   } else {
-    d.moveCursorColumn(-1);
+    d.move_point(-1,editor::move_x);
   }
   return CommandMode;
 }
-
 
 
 #define ARRAY_SIZE(x) ((sizeof x) / (sizeof *x))
@@ -1037,9 +1082,8 @@ display_run_cmd(struct display* display,
                 void* misc);
 
 
-/**
- * Creates a line initialized with the copy of data;
- */
+
+// Creates a line initialized with the copy of data;
 struct line*
 line_create(char* data)
 {
@@ -1052,9 +1096,9 @@ line_create(char* data)
    return newline;
 }
 
-/**
- * Inserts a new line into list_head after the previous line.
- */
+
+ //Inserts a new line into list_head after the previous line.
+
 void
 line_insert(struct line* new_line,
             struct line* prev_line,
@@ -1079,11 +1123,10 @@ line_insert(struct line* new_line,
   }
 }
 
-/**
- * *TODO* Merge the current line with the previous line. Due to the
- * presence of new line. When this line is merged with previous line
- * we will need to handle the newline.
- */
+
+ // *TODO* Merge the current line with the previous line. Due to the
+ // presence of new line. When this line is merged with previous line
+ // we will need to handle the newline.
 struct line*
 line_merge(struct line* line,
            struct line** list_head)
@@ -1139,9 +1182,8 @@ line_split(struct line* line,
   return new_line;
 }
 
-/**
- * Unlink the line from line list.
- */
+
+// Unlink the line from line list.
 struct line*
 line_unlink(struct line* line,
             struct line** line_head)
@@ -1168,9 +1210,8 @@ line_unlink(struct line* line,
   return line;
 }
 
-/**
- * Buffered List
- */
+
+// Buffered List
 static struct buffer_list* buffers;
 
 
@@ -1193,11 +1234,9 @@ buffer_create(char* buffer_name)
   return buffer;
 }
 
-/**
- * Return a pointer to a line rather than using indices into content
- * field.
- */
 
+// Return a pointer to a line rather than using indices into content
+// field.
 struct line*
 buffer_find_line(struct buffer* b,
                  int num)
@@ -1222,9 +1261,8 @@ buffer_find_line(struct buffer* b,
 }
 
 
-/**
- * Read file contents into lines.
- */
+
+// Read file contents into lines.
 int
 buffer_fill_lines(struct buffer* buffer,
                   FILE* file,
@@ -1277,11 +1315,11 @@ buffer_fill_lines(struct buffer* buffer,
   return 0;
 }
 
-/**
- * Keeping this fairly simple, just iterating through all the lines
- * and writing it to the file. The fill is trunkcated before writing
- * to it. Not very efficient for large files.
- */
+//
+ // Keeping this fairly simple, just iterating through all the lines
+ // and writing it to the file. The fill is trunkcated before writing
+ // to it. Not very efficient for large files.
+ //
 void
 buffer_save(struct buffer* buffer)
 {
@@ -1309,11 +1347,7 @@ buffer_save(struct buffer* buffer)
 }
 
 
-
-
-/**
- * Opens a file given by file path
- */
+ // Opens a file given by file path
 struct buffer*
 buffer_open_file(char* buffer_name,
                  char* path)
@@ -1348,9 +1382,9 @@ buffer_open_file(char* buffer_name,
   return NULL;
 }
 
-/**
- * Insert the character at postion speicfied in the current line
- */
+
+ //Insert the character at postion speicfied in the current line
+
 void
 buffer_insert_char(struct buffer* buffer,
                    char insert_char,
@@ -1386,9 +1420,8 @@ buffer_insert_char(struct buffer* buffer,
   buffer->current_line->data_len++;
 }
 
-/**
- * Insert a new line into the buffer at the current line postion
- */
+
+// Insert a new line into the buffer at the current line postion
 void
 buffer_open_line(struct buffer* buffer)
 {
@@ -1453,9 +1486,7 @@ buffer_split_line(struct buffer* buffer,
 
 }
 
-/**
- * Join the current line with the previous line.
- */
+// Join the current line with the previous line.
 void
 buffer_join_line(struct buffer* buffer)
 {
@@ -1482,10 +1513,11 @@ buffer_join_line(struct buffer* buffer)
     free(line_data);
 }
 
-/**
- * Delete the character at postion speicfied in the current line. Will
- * not overwrite the last newline character.
- */
+
+
+// Delete the character at postion speicfied in the current line. Will
+// not overwrite the last newline character.
+//
 void
 buffer_delete_char(struct buffer* buffer,
                    int delete_position)
@@ -1516,9 +1548,8 @@ buffer_delete_char(struct buffer* buffer,
   buffer->current_line->data_len = strlen(buffer->current_line->data);
 }
 
-/**
- * A primitive search forward in the buffer.
- */
+
+//A primitive search forward in the buffer.
 struct line*
 buffer_search_forward(struct buffer* buffer,
                       int start_line)
@@ -1609,10 +1640,10 @@ display_line_down(struct display * display)
   return false;
 }
 
-/**
- * Starting with current line, return pointer to starting line of next
- * page, where page will be number of lines to keep on the page.
- */
+//
+// Starting with current line, return pointer to starting line of next
+// page, where page will be number of lines to keep on the page.
+//
 bool
 display_pg_down(struct display * display)
 {
@@ -1639,9 +1670,9 @@ display_pg_down(struct display * display)
   return true;
 }
 
-/**
- * Go to the last page.
- */
+//
+// Go to the last page.
+//
 bool
 display_pg_last(struct display* display,void* misc)
 {
@@ -1670,10 +1701,10 @@ display_pg_last(struct display* display,void* misc)
   return true;
 }
 
-/**
- * Starting with current line, return pointer to starting line of next
- * page, where page will be number of lines to keep on the page.
- */
+//
+// Starting with current line, return pointer to starting line of next
+// page, where page will be number of lines to keep on the page.
+
 bool
 display_pg_up(struct display * display)
 {
@@ -2528,19 +2559,19 @@ main(int argc,char* argv[])
 
   XLOG = new Logger(); //logging_init();
   App::logger().log("x:started");
-  Display display;
+  editor editor;
 
   string bufferName("x.cc");
   string filePath("/home/aakarsh/src/c/x/x.cc");
 
-  if(argc > 1) {     // add buffer to display
+  if(argc > 1) {     // add buffer to editor
     bufferName = argv[1];
     filePath   = argv[1];
   }
 
-  display.appendBuffer(new Buffer(bufferName, filePath));
+  editor.appendBuffer(new Buffer(bufferName, filePath));
 
-  display.start();
+  editor.start();
 
   //logging_end(XLOG);
 
