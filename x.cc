@@ -101,24 +101,24 @@ logger& app::get_logger() {
   return *debug_logger;
 }
 
-class Line {
+class x_line {
 public:
   // Position relative to the file.
   long line_number;
   streampos file_position;
   long line_pos;
 
-  // Line Data
+  // x_line data
   string data;
 
-  Line(int line_no,
+  x_line(int line_no,
        streampos fpos,
        int lpos) :
     line_number(line_no)
     ,file_position(fpos)
     ,line_pos(lpos) {}
 
-  Line(int line_no,
+  x_line(int line_no,
        streampos fpos,
        int lpos,
        string& data):
@@ -127,7 +127,7 @@ public:
     ,line_pos(lpos)
     ,data(data){}
 
-  Line(): Line(0,0,0) {}
+  x_line(): x_line(0,0,0) {}
   
 };
 
@@ -157,14 +157,14 @@ private:
   bool modified;
 
   // current line
-  int currentLineIndex ;
+  int current_lineIndex ;
 
   // list of lines of the buffer.
-  vector<Line*> lines;
+  vector<x_line*> lines;
 
 public:
 
-  vector<Line*>& get_lines() {
+  vector<x_line*>& get_lines() {
     return this->lines;
   }
 
@@ -226,11 +226,10 @@ public:
     this->clear();
 
     while(getline(in,line)) {// The whole file is read into mem
-      Line* cur =  new Line(line_number,in.tellg(),0,line);
+      x_line* cur =  new x_line(line_number, in.tellg(), 0, line);
       lines.push_back(cur);
     }
   }
-
 };
 
 
@@ -273,7 +272,7 @@ public:
 class display_window {
 
 private:
-  int numLines;
+  int num_lines;
   int numColumns;
   int beginY;
   int beginX;
@@ -286,12 +285,12 @@ public:
   display_window& operator=(const display_window& ) = delete;
 
   display_window(int nl, int nc,int by, int bx):
-     numLines(nl)
+     num_lines(nl)
     ,numColumns(nc)
     ,beginY(by)
     ,beginX(bx) {
 
-    window = newwin(numLines,
+    window = newwin(num_lines,
                     numColumns,
                     beginY,
                     beginX);
@@ -301,7 +300,7 @@ public:
   }
 
   int get_height() {
-    return numLines;
+    return num_lines;
   };
 
   int get_width() {
@@ -346,7 +345,7 @@ public:
 class editor;
 class editor_command;
 class Mode;
-class NextLine;
+class Next_line;
 
 enum  editor_mode { command_mode = 0,
                     insert_mode  = 1,
@@ -536,7 +535,7 @@ public:
     buf* buffer =
       this->buffers->get_current_buffer();
 
-    vector<Line*> & lines = buffer->get_lines();
+    vector<x_line*> & lines = buffer->get_lines();
 
     int line_count;
 
