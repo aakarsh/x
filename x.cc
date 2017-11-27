@@ -22,34 +22,34 @@
 #include <memory>
 
 using namespace std;
-class App;
-class Logger;
+class app;
+class logger;
 
-class App {
-  friend class Logger;
+class app {
+  friend class logger;
 
 public:
-  static bool debugMode;
-  static string debugLogFile;
-  static Logger* debugLogger;
-  static Logger& logger();
+  static bool debug_mode;
+  static string debug_log_file;
+  static logger* debug_logger;
+  static logger& get_logger();
 };
 
 #ifdef DEBUG
-bool App::debugMode = true;
+bool app::debug_mode = true;
 #else
-bool App::debugMode = false;
+bool app::debug_mode = false;
 #endif
-string App::debugLogFile = "x-debug.log";
+string app::debug_log_file = "x-debug.log";
 
 const char* log_file ="x.log";
 
 enum log_level { LOG_LEVEL_INFO, LOG_LEVEL_DEBUG};
 
-class Logger {
+class logger {
 private:
   // static instance of logger.
-  static Logger* debugLogger;
+  static logger* debug_logger;
 
 public:
   log_level level;
@@ -57,15 +57,15 @@ public:
   ofstream debugStream;
   static bool debug_mode;
 
-  Logger():
+  logger():
       level(LOG_LEVEL_INFO)
-      ,debugStream(App::debugLogFile,
+      ,debugStream(app::debug_log_file,
                    std::ofstream::out)
   {
-    if(App::debugMode) {
+    if(app::debug_mode) {
       this->level = LOG_LEVEL_DEBUG;
       this->debug_file = fopen("foo.log","w+");
-      this->debugStream.open(App::debugLogFile,
+      this->debugStream.open(app::debug_log_file,
                              std::ofstream::out);
     }
   }
@@ -74,16 +74,16 @@ public:
     return this->debugStream;
   }
 
-  Logger& log(const string& str) {
+  logger& log(const string& str) {
     ostream &log = out();
-    if(App::debugMode) {
+    if(app::debug_mode) {
       log<<str<<endl;
     }
     log.flush();
     return *this;
   }
 
-  ~Logger() {
+  ~logger() {
 #ifdef DEBUG
     this->debugStream.close();
     //this->debug_file.close();
@@ -92,13 +92,13 @@ public:
   }
 };
 
-Logger* App::debugLogger;
+logger* app::debug_logger;
 
-Logger& App::logger() {
-  if(!App::debugLogger) {
-    App::debugLogger = new Logger();
+logger& app::get_logger() {
+  if(!app::debug_logger) {
+    app::debug_logger = new logger();
   }
-  return *debugLogger;
+  return *debug_logger;
 }
 
 class Line {
@@ -131,24 +131,24 @@ public:
   
 };
 
-class Buffer {
+class buf {
 
 private:
   // List of buffer errors
-  enum BufferError { Buffer_NoError,
-                     Buffer_FileError,
-                     Buffer_NoFile } ;
+  enum buffer_error { buffer_noerror,
+                      buffer_file_errory,
+                      buffer_no_file } ;
 
   // file backing this buffer
-  const string filePath;
+  const string file_path;
 
   // buffer name
-  const string bufferName;
+  const string buffer_name;
 
   // file stream backing the buffer.
   fstream bufferStream;
 
-  BufferError errorCode;
+  buffer_error error_code;
 
   // size of buffer.
   off_t size;
@@ -172,29 +172,29 @@ public:
     return this->modified;
   }
 
-  string getBufferName() {
-    return this->bufferName;
+  string get_buffer_name() {
+    return this->buffer_name;
   }
 
   // Avoid defaults
-  Buffer()  = delete;
+  buf()  = delete;
 
- Buffer(const Buffer& buffer)  = delete;
+ buf(const buf& buffer)  = delete;
 
-  Buffer(string name, string path):
-      filePath(path)
-    , bufferName(name)
+  buf(string name, string path):
+      file_path(path)
+    , buffer_name(name)
     , bufferStream(path, ios_base::in)  {
 
     if(bufferStream.rdstate() && std::ifstream::failbit != 0) {
-      errorCode = Buffer_NoError;
+      error_code = buffer_noerror;
       return;
     }
 
     this->fill(bufferStream);
   }
 
-  ~Buffer() {
+  ~buf() {
     // close open file
     bufferStream.close();
     // free all lines.
@@ -202,7 +202,7 @@ public:
   }
 
   bool isErrorState() {
-    return errorCode != Buffer_NoError;
+    return error_code != buffer_noerror;
   }
 
   /**
@@ -234,37 +234,37 @@ public:
 };
 
 
-class BufferList {
+class buf_list {
 
 private:
-  vector<Buffer*> buffers;
-  Buffer* current_buffer;
+  vector<buf*> buffers;
+  buf* current_buffer;
 
 public:
-  BufferList() = default;
+  buf_list() = default;
 
-  BufferList(Buffer* first):
+  buf_list(buf* first):
     current_buffer(first) {
     this->buffers.push_back(first);
   }
 
-  BufferList& append(Buffer* buffer) {
+  buf_list& append(buf* buffer) {
     return this->append(*buffer);
   }
 
-  BufferList& append(Buffer& buffer) {
+  buf_list& append(buf& buffer) {
     this->buffers.push_back(&buffer);
     this->current_buffer = &buffer;
     return *this;
   }
 
 
-  int numBuffers()  {
+  int num_buffers()  {
     return this->buffers.size();
   }
 
 
-  Buffer* get_current_buffer() {
+  buf* get_current_buffer() {
     return this->current_buffer;
   }
 
@@ -368,7 +368,7 @@ public:
     return mode_map[cmd];
   }
   
-  string& getName() { return mode_name; }
+  string& get_name() { return mode_name; }
 };
 
 
@@ -428,7 +428,7 @@ private:
   display_window *mode_window;
   display_window *buffer_window;
 
-  BufferList *buffers;
+  buf_list *buffers;
 
   bool redisplay; // trigger a buffer-redisplay of buffer
   bool quit;      // quit will cause the display loop to exit.
@@ -441,7 +441,7 @@ private:
 public:
   enum move_dir { move_y = 0 , move_x };
 
-  editor() : buffers(new BufferList()) {
+  editor() : buffers(new buf_list()) {
 
     // determine the screen
     initscr();
@@ -478,23 +478,23 @@ public:
   }
 
 
-  Mode* getCurrentMode() {
+  Mode* get_current_mode() {
     return this->modes[mode];
   }
 
-  void changeMode(editor_mode newMode) {
+  void change_mode(editor_mode newMode) {
     if(newMode!= mode){
       mode = newMode;
     }
   }
 
-  void runCommand(const string& cmd) {
+  void run_cmd(const string& cmd) {
     if(cmd == "q") { // treat quit special for nwo
       this->quit = true;
     }else { // Need to look up command in the mode
       this->redisplay = false; // Don't do redisplay unless requested
 
-      Mode* mode = this->getCurrentMode();
+      Mode* mode = this->get_current_mode();
 
       if (!mode)
         return;
@@ -504,56 +504,58 @@ public:
         return;
 
       editor_mode nextMode = editor_command->run(*this,cmd);
-      this->changeMode(nextMode);
+      this->change_mode(nextMode);
     }
   }
 
   void display_mode_line() {
 
-    Buffer* current_buffer =
+    buf* current_buffer =
       this->buffers->get_current_buffer();
 
     string modified =
       current_buffer->is_modified() ? "*" : "-";
 
     stringstream mode_line;
-    mode_line<<"["<<modified<<"] "<< current_buffer->getBufferName()
-            <<" ------ " << "["<< this->getCurrentMode()->getName() <<"]";
+    mode_line<<"["<<modified<<"] "<< current_buffer->get_buffer_name()
+            <<" ------ " << "["<< this->get_current_mode()->get_name() <<"]";
 
     // rpait mode at 0 0
     this->mode_window->display_line(0, 0, mode_line.str());
   }
   
-  Buffer* get_current_buffer() {
+  buf* get_current_buffer() {
     return this->buffers->get_current_buffer();
   }
 
   void display_buffer() {
 
-    App::logger().log("display_buffer");
+    app::get_logger().log("display_buffer");
     this->buffer_window->rewind();
 
-    Buffer* buffer =
+    buf* buffer =
       this->buffers->get_current_buffer();
 
     vector<Line*> & lines = buffer->get_lines();
 
-    int lineCount;
+    int line_count;
 
-    for(auto line_ptr : lines) { 
-      if(lineCount >=
+    for(auto line_ptr : lines) {
+      
+      if(line_count >=
          this->buffer_window->get_height()) {
         break;
       }
 
-      if(lineCount < start_line) {
+      if(line_count < start_line) {
+        line_count++;
         continue;
       }
       
       // iterate through the lines going to cursor poistion
       this->buffer_window->display_line(line_ptr->data);
       this->buffer_window->display_line("\n");
-      lineCount++;
+      line_count++;
     }
     // rewind to beginning -
     this->buffer_window->rewind();
@@ -601,9 +603,15 @@ public:
   }
 
   void move_page(int pg_inc) {
-    int max_lines = this->get_current_buffer()->get_lines().size();
-    int pg_size = this->buffer_window->get_height();
-    int new_start_line = this->start_line + (pg_inc*pg_size);
+    
+    int max_lines =
+      this->get_current_buffer()->get_lines().size();
+    
+    int pg_size =
+      this->buffer_window->get_height();
+    
+    int new_start_line =
+      this->start_line + (pg_inc * pg_size);
     
     if(new_start_line <= 0 ) {
       this->start_line = 0;
@@ -612,6 +620,7 @@ public:
     }  else {
       this->start_line = new_start_line;
     }
+    
     mark_redisplay();
   }
 
@@ -619,7 +628,8 @@ public:
     this->redisplay = true;
   }
 
-  const string parseCommand() {
+  const string parse_cmd() {
+    
     char cur = getch();
     string c(1,cur);
     
@@ -658,16 +668,19 @@ public:
       this->display_cursor();
 
       // trigger command
-      this->runCommand(parseCommand());
+      this->run_cmd(this->parse_cmd());
       //
 
       // run the next command till redisplay becomes necessary
-      while(!this->redisplay && !this->quit) {
-        this->runCommand(parseCommand());   // get-input
+      while(!this->redisplay
+            && !this->quit) {
+        // get-input
+        this->run_cmd(this->parse_cmd());
+        
         
         // move the window to current place        
         this->display_cursor();
-        App::logger().log("cursor_line");       
+        app::get_logger().log("cursor_line");       
       }
       
       // need to reset to do a redisplay
@@ -686,7 +699,7 @@ public:
    * buffer once it has been added to display's
    * buffer list.
    */  
-  void appendBuffer(Buffer* buffer) {
+  void append_buffer(buf* buffer) {
     this->buffers->append(buffer);
   }
 
@@ -806,7 +819,7 @@ struct display {
 };
 
 
-Logger* XLOG;
+logger* XLOG;
 
 #define LOG_DEBUG( ...)                         \
   do {                                          \
@@ -2582,26 +2595,26 @@ int
 main(int argc,char* argv[])
 {
 
-  XLOG = new Logger(); //logging_init();
-  App::logger().log("x:started");
+  XLOG = new logger(); //logging_init();
+  app::get_logger().log("x:started");
   editor editor;
 
-  string bufferName("x.cc");
-  string filePath("/home/aakarsh/src/c/x/x.cc");
+  string buffer_name("x.cc");
+  string file_path("/home/aakarsh/src/c/x/x.cc");
 
   if(argc > 1) {     // add buffer to editor
-    bufferName = argv[1];
-    filePath   = argv[1];
+    buffer_name = argv[1];
+    file_path   = argv[1];
   }
 
-  editor.appendBuffer(new Buffer(bufferName, filePath));
+  editor.append_buffer(new buf(buffer_name, file_path));
 
   editor.start();
 
   //logging_end(XLOG);
 
   delete XLOG;
-  delete &(App::logger()); // close log file
+  delete &(app::get_logger()); // close log file
   return 0;
 }
 
