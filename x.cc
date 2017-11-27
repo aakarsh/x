@@ -122,13 +122,13 @@ public:
        streampos fpos,
        int lpos,
        string& data):
-
-    line_number(line_no)
+     line_number(line_no)
     ,file_position(fpos)
     ,line_pos(lpos)
     ,data(data){}
 
   Line(): Line(0,0,0) {}
+  
 };
 
 class Buffer {
@@ -348,27 +348,27 @@ class editor_command;
 class Mode;
 class NextLine;
 
-enum  editor_mode { CommandMode = 0,
-                    InsertMode  = 1,
-                    SearchMode  = 2 };
+enum  editor_mode { command_mode = 0,
+                    insert_mode  = 1,
+                    search_mode  = 2 };
 
 typedef map<string,editor_command*> keymap;
 
 class Mode {
 private:
-  string modeName;
-  keymap modeMap;
+  string mode_name;
+  keymap mode_map;
 
 public:
   Mode(const string& name, const keymap &cmds) :
-     modeName(name)
-    ,modeMap(cmds){}
+     mode_name(name)
+    ,mode_map(cmds){}
 
   editor_command* lookup(const string& cmd) {
-    return modeMap[cmd];
+    return mode_map[cmd];
   }
-  string& getName() { return modeName; }
-
+  
+  string& getName() { return mode_name; }
 };
 
 
@@ -392,10 +392,18 @@ public:
   virtual editor_mode run (editor &display, const string& cmd ) = 0;
 };
 
+// TODO: auto-gen
 class move_line : public editor_command {
 public:
   move_line(): editor_command() {};
   move_line(vector<string> & ks): editor_command(ks) {};
+  editor_mode run(editor& d, const string &cmd );
+};
+
+class move_pg : public editor_command {
+public:
+  move_pg(): editor_command() {};
+  move_pg(vector<string> & ks): editor_command(ks) {};
   editor_mode run(editor& d, const string &cmd );
 };
 
@@ -406,14 +414,6 @@ public:
   editor_mode run(editor& d, const string &cmd);
 };
 
-
-class MovePage : public editor_command {
-public:
-  MovePage(): editor_command() {};
-  MovePage(vector<string> & ks): editor_command(ks) {};
-  editor_mode run(editor& d, const string &cmd );
-};
-
 class editor {
 
 private:
@@ -421,6 +421,7 @@ private:
 
   int screen_height;
   int screen_width;
+  
   int mode_padding = 2;
   editor_mode mode;
 
@@ -467,8 +468,11 @@ public:
     vector<string> move_col_keys {"l","h","^b","^f"};
     (new move_column(move_col_keys))->keymap_add(cmd_map);
 
+    vector<string> move_pg_keys {">","<"," "};
+    (new move_pg(move_pg_keys))->keymap_add(cmd_map);
+    
     this->modes.push_back(new Mode("CMD", cmd_map));
-    this->mode = CommandMode;
+    this->mode = command_mode;
     raw();
     refresh();
   }
@@ -519,8 +523,12 @@ public:
     // rpait mode at 0 0
     this->mode_window->display_line(0, 0, mode_line.str());
   }
+  
+  Buffer* get_current_buffer() {
+    return this->buffers->get_current_buffer();
+  }
 
-  void display_buffer(bool redisplay) {
+  void display_buffer() {
 
     App::logger().log("display_buffer");
     this->buffer_window->rewind();
@@ -528,7 +536,7 @@ public:
     Buffer* buffer =
       this->buffers->get_current_buffer();
 
-    vector<Line*> lines = buffer->get_lines();
+    vector<Line*> & lines = buffer->get_lines();
 
     int lineCount;
 
@@ -552,7 +560,7 @@ public:
   }
 
   /**
-   * Box value withing limits with included 
+   * box value withing limits with included 
    * padding.
    */
   int box(int value,
@@ -590,15 +598,24 @@ public:
 
   void move_point(int inc, move_dir dir) {
     this->cursor = inc_point(cursor,inc,dir);
-
   }
 
-
-  void movePage(int pg) {
+  void move_page(int pg_inc) {
+    int max_lines = this->get_current_buffer()->get_lines().size();
+    int pg_size = this->buffer_window->get_height();
+    int new_start_line = this->start_line + (pg_inc*pg_size);
     
+    if(new_start_line <= 0 ) {
+      this->start_line = 0;
+    } else if(new_start_line >= max_lines){
+      this->start_line = max_lines - pg_size;
+    }  else {
+      this->start_line = new_start_line;
+    }
+    mark_redisplay();
   }
 
-  void markRedisplay() {
+  void mark_redisplay() {
     this->redisplay = true;
   }
 
@@ -635,7 +652,7 @@ public:
       this->display_mode_line();
 
       // main buffer
-      this->display_buffer(true);
+      this->display_buffer();
 
       // move visible cursor
       this->display_cursor();
@@ -647,13 +664,12 @@ public:
       // run the next command till redisplay becomes necessary
       while(!this->redisplay && !this->quit) {
         this->runCommand(parseCommand());   // get-input
-        // move the window to current place
         
+        // move the window to current place        
         this->display_cursor();
-        App::logger().log("cursor_line");
-
-       
+        App::logger().log("cursor_line");       
       }
+      
       // need to reset to do a redisplay
       this->redisplay = false;
     }
@@ -695,7 +711,7 @@ editor_mode move_line::run(editor& d, const string &cmd) {
   } else {
     d.move_point(-1,editor::move_y);
   }
-  return CommandMode;
+  return command_mode;
 }
 
 editor_mode move_column::run(editor& d, const string &cmd) {
@@ -704,7 +720,16 @@ editor_mode move_column::run(editor& d, const string &cmd) {
   } else {
     d.move_point(-1,editor::move_x);
   }
-  return CommandMode;
+  return command_mode;
+}
+
+editor_mode move_pg::run(editor& d, const string &cmd) {
+  if(cmd == " "|| cmd == ">"){
+    d.move_page(+1);    // move the cursor but dont do a redisplay
+  } else {
+    d.move_page(-1);
+  }
+  return command_mode;
 }
 
 
