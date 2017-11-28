@@ -128,7 +128,11 @@ public:
     ,data(data){}
 
   x_line(): x_line(0,0,0) {}
-  
+
+  int size(){
+    return this->data.size();
+  }
+    
 };
 
 class buf {
@@ -474,6 +478,14 @@ public:
     refresh();
   }
 
+  int get_currrent_line_idx() {
+    return this->start_line +  this->cursor.first;
+  }
+
+  x_line* get_current_line() {
+    int idx = this->get_currrent_line_idx();
+    return (this->get_current_buffer()->get_lines())[idx];
+  }
 
   x_mode* get_current_mode() {
     return this->modes[mode];
@@ -586,14 +598,19 @@ public:
   }
   
   point eol() {
-    return make_pair(cursor.first, 6);
+    int eol = 0 ;
+    x_line* cur = this->get_current_line();
+    if(cur) {
+      eol = cur->size() - 1; // new_line
+    }
+    return make_pair(cursor.first, eol);
   }
 
   point inc_point(point p,
                   int inc,
                   move_dir dir) {
 
-    if(dir == move_y) {
+    if(dir == move_y) {      
       return make_point(box(p.first+inc,
                             {0, this->buffer_window->get_height()},
                             {0, this->mode_padding})
