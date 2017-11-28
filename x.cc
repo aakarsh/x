@@ -600,7 +600,7 @@ public:
   point eol() {
     int eol = 0 ;
     x_line* cur = this->get_current_line();
-    if(cur) {
+    if(cur) {      
       eol = cur->size() - 1; // new_line
     }
     return make_pair(cursor.first, eol);
