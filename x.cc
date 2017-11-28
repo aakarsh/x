@@ -341,7 +341,7 @@ public:
 
 class editor;
 class editor_command;
-class Mode;
+class mode;
 class Next_line;
 
 enum  editor_mode { command_mode = 0,
@@ -350,13 +350,13 @@ enum  editor_mode { command_mode = 0,
 
 typedef map<string,editor_command*> keymap;
 
-class Mode {
+class x_mode {
 private:
   string mode_name;
   keymap mode_map;
 
 public:
-  Mode(const string& name, const keymap &cmds) :
+  x_mode(const string& name, const keymap &cmds) :
      mode_name(name)
     ,mode_map(cmds){}
 
@@ -406,7 +406,7 @@ public:
 class editor {
 
 private:
-  vector<Mode*> modes;
+  vector<x_mode*> modes;
 
   int screen_height;
   int screen_width;
@@ -468,14 +468,14 @@ public:
     vector<string> move_pg_keys {">","<"," "};
     (new move_pg(move_pg_keys))->keymap_add(cmd_map);
     
-    this->modes.push_back(new Mode("CMD", cmd_map));
+    this->modes.push_back(new x_mode("CMD", cmd_map));
     this->mode = command_mode;
     raw();
     refresh();
   }
 
 
-  Mode* get_current_mode() {
+  x_mode* get_current_mode() {
     return this->modes[mode];
   }
 
@@ -491,7 +491,7 @@ public:
     }else { // Need to look up command in the mode
       this->redisplay = false; // Don't do redisplay unless requested
 
-      Mode* mode = this->get_current_mode();
+      x_mode* mode = this->get_current_mode();
 
       if (!mode)
         return;
