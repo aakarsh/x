@@ -132,7 +132,7 @@ public:
   int size(){
     return this->data.size();
   }
-    
+
 };
 
 class buf {
@@ -166,10 +166,29 @@ private:
   // list of lines of the buffer.
   vector<x_line*> lines;
 
+  typedef pair<pair<int,int>,pair<int,int>> border;
+
+  // left-top , right-bottom
+  border display_border;
+
+  // index in buffer of current point
+  int displayLine;
+
 public:
+
+  void set_display_border(border b) {
+    this->display_border = b;
+  }
 
   vector<x_line*>& get_lines() {
     return this->lines;
+  }
+
+  x_line* get_line(size_t idx) {
+    if(idx >= this->lines.size()) {
+      return nullptr;
+    }
+    return this->lines[idx];
   }
 
   bool is_modified() {
@@ -367,7 +386,7 @@ public:
   editor_command* lookup(const string& cmd) {
     return mode_map[cmd];
   }
-  
+
   string& get_name() { return mode_name; }
 };
 
@@ -382,13 +401,13 @@ public:
   vector<string> & getKeys() {
     return this->keys;
   }
-  
+
   void keymap_add(keymap& map) {
     for(auto &key : getKeys()) {
       map.insert({key,this});
     }
   }
-  
+
   virtual editor_mode run (editor &display, const string& cmd ) = 0;
 };
 
@@ -414,7 +433,7 @@ private:
 
   int screen_height;
   int screen_width;
-  
+
   int mode_padding = 1;
   editor_mode mode;
 
@@ -430,7 +449,7 @@ private:
 
   point cursor;
   int start_line = 0;
-  
+
 public:
   enum move_dir { move_y = 0 , move_x };
   enum anchor_type { no_anchor = 0 ,
@@ -452,13 +471,13 @@ public:
                         screen_width,
                         screen_height-mode_padding, // beginY
                         0);
-    
+
     this->buffer_window  =
-      new display_window(screen_height- mode_padding, // num lines 
-                        screen_width,    // num cols 
+      new display_window(screen_height- mode_padding, // num lines
+                        screen_width,    // num cols
                         0,               // beginY
                         0);              // beginX
-    
+
     keymap cmd_map;
 
     vector<string> mv_point_keys {"j","^n","k",
@@ -471,7 +490,7 @@ public:
 
     vector<string> move_pg_keys {">","<"," "};
     (new move_pg(move_pg_keys))->keymap_add(cmd_map);
-    
+
     this->modes.push_back(new x_mode("CMD", cmd_map));
     this->mode = command_mode;
     raw();
@@ -479,12 +498,13 @@ public:
   }
 
   int get_currrent_line_idx() {
-    return this->start_line +  this->cursor.first;
+    return
+      this->start_line + this->cursor.first;
   }
 
   x_line* get_current_line() {
     int idx = this->get_currrent_line_idx();
-    return (this->get_current_buffer()->get_lines())[idx];
+    return this->get_current_buffer()->get_line(idx);
   }
 
   x_mode* get_current_mode() {
@@ -501,7 +521,9 @@ public:
     if(cmd == "q") { // treat quit special for nwo
       this->quit = true;
     }else { // Need to look up command in the mode
-      this->redisplay = false; // Don't do redisplay unless requested
+
+      // don't do redisplay unless requested
+      this->redisplay = false;
 
       x_mode* mode = this->get_current_mode();
 
@@ -532,14 +554,14 @@ public:
     // rpait mode at 0 0
     this->mode_window->display_line(0, 0, mode_line.str());
   }
-  
+
   buf* get_current_buffer() {
     return this->buffers->get_current_buffer();
   }
 
   void display_buffer() {
     app::get_logger().log("display_buffer");
-    
+
     this->buffer_window->rewind();
 
     buf* buffer =
@@ -550,7 +572,7 @@ public:
     int line_count;
 
     for(auto line_ptr : lines) {
-      
+
       if(line_count >=
          this->buffer_window->get_height()) {
         break;
@@ -560,7 +582,7 @@ public:
         line_count++;
         continue;
       }
-      
+
       // iterate through the lines going to cursor poistion
       this->buffer_window->display_line(line_ptr->data);
       this->buffer_window->display_line("\n");
@@ -571,15 +593,15 @@ public:
   }
 
   /**
-   * box value withing limits with included 
+   * box value withing limits with included
    * padding.
    */
   int box(int value,
           pair<int,int>  limits,
-          pair<int,int>  padding) {    
+          pair<int,int>  padding) {
     int min = limits.first  - padding.first;
     int max = limits.second - padding.second;
-    
+
     if(value  >= max)
       return max;
     else if(value <= min) {
@@ -596,37 +618,53 @@ public:
   point bol() {
     return make_pair(cursor.first,0);
   }
-  
+
   point eol() {
-    int eol = 0 ;
-    x_line* cur = this->get_current_line();
-    if(cur) {      
-      eol = cur->size() - 1; // new_line
-    }
-    return make_pair(cursor.first, eol);
+    return make_pair(cursor.first, get_line_size());
   }
 
-  point inc_point(point p,
-                  int inc,
-                  move_dir dir) {
+  int get_line_size(int idx) {
+    if(idx >= 0 &&
+       idx < this->get_current_buffer()->get_lines().size()) {
 
-    if(dir == move_y) {      
+      x_line* cur = (this->get_current_buffer()->get_lines())[idx];
+
+      if(cur) {
+        return cur->size() - 1;
+      }
+    }
+
+    return 0;
+  }
+
+  int get_line_size() {
+    x_line* cur = this->get_current_line();
+    if(cur) {
+      return cur->size() - 1;
+    }
+    return 0;
+  }
+
+  point inc_point(point p, int inc, move_dir dir)
+  {
+    if(dir == move_y) {
       return make_point(box(p.first+inc,
                             {0, this->buffer_window->get_height()},
                             {0, this->mode_padding})
-                        ,p.second);
-    } else if(dir == move_x) {
+                        ,min(this->get_line_size(p.first+inc)+1 ,p.second));
+    } else if(dir == move_x) { // need to compute size of incremented line
       return make_point(p.first,
                         box(p.second + inc,
-                            {0,this->buffer_window->get_width()},
-                            {0,this->mode_padding}));
+                            {0, min(this->get_line_size(p.first)+1,
+                                    this->buffer_window->get_width())},
+                            {0, this->mode_padding}));
     } else{
       return cursor;
     }
   }
 
   void move_point(int inc, move_dir dir, anchor_type anchor ) {
-    // compute increment relative to anchor 
+    // compute increment relative to anchor
     if(anchor == no_anchor) {
       this->cursor = inc_point(cursor,inc,dir);
     } else if (anchor == line_begin) {
@@ -637,18 +675,18 @@ public:
       return;
     }
   }
-  
+
   void move_page(int pg_inc) {
-    
+
     int max_lines =
       this->get_current_buffer()->get_lines().size();
-    
+
     int pg_size =
       this->buffer_window->get_height();
-    
+
     int new_start_line =
       this->start_line + (pg_inc * pg_size);
-    
+
     if(new_start_line <= 0 ) {
       this->start_line = 0;
     } else if(new_start_line >= max_lines){
@@ -656,7 +694,7 @@ public:
     }  else {
       this->start_line = new_start_line;
     }
-    
+
     mark_redisplay();
   }
 
@@ -665,25 +703,25 @@ public:
   }
 
   const string parse_cmd() {
-    
+
     char cur = getch();
     string c(1,cur);
-    
-    vector<char> alphabet;    
+
+    vector<char> alphabet;
     char start = 'a';
     while(start < 'z')
       alphabet.push_back(start++);
-    
+
     start = 'A';
     while(start < 'Z')
       alphabet.push_back(start++);
-    
+
     for(auto & k : alphabet) {
       if(cur == (k  & 037)) { //character has been CTRL modified
         return (string("^") + string(1,k));
       }
     }
-    
+
     string kn(keyname(cur));
     return c;
   }
@@ -712,13 +750,13 @@ public:
             && !this->quit) {
         // get-input
         this->run_cmd(this->parse_cmd());
-        
-        
-        // move the window to current place        
+
+
+        // move the window to current place
         this->display_cursor();
-        app::get_logger().log("cursor_line");       
+        app::get_logger().log("cursor_line");
       }
-      
+
       // need to reset to do a redisplay
       this->redisplay = false;
     }
@@ -734,7 +772,7 @@ public:
    * editor will handle the life cycle of th
    * buffer once it has been added to display's
    * buffer list.
-   */  
+   */
   void append_buffer(buf* buffer) {
     this->buffers->append(buffer);
   }
@@ -750,7 +788,7 @@ public:
 
 
 /**
- * point motion commands: make the bindings less explicit. 
+ * point motion commands: make the bindings less explicit.
  */
 editor_mode mv_point::run(editor& d, const string &cmd) {
   if(cmd == "j"|| cmd == "^n") { // move the cursor but dont do a redisplay
@@ -766,7 +804,7 @@ editor_mode mv_point::run(editor& d, const string &cmd) {
   } else if (cmd == "$" || cmd == "^e") {
     d.move_point(0,editor::move_x, editor::line_end);
   }
-  
+
   return command_mode;
 }
 
