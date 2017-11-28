@@ -219,13 +219,10 @@ public:
    * Fill buffer with lines from the input stream.
    */
   void fill(istream& in) {
-
     string line;
     int line_number = 0;
-
     this->clear();
-
-    while(getline(in,line)) {// The whole file is read into mem
+    while(getline(in,line)) {// the whole file is read into mem
       x_line* cur =  new x_line(line_number, in.tellg(), 0, line);
       lines.push_back(cur);
     }
@@ -392,13 +389,6 @@ public:
 };
 
 // TODO: auto-gen
-class move_line : public editor_command {
-public:
-  move_line(): editor_command() {};
-  move_line(vector<string> & ks): editor_command(ks) {};
-  editor_mode run(editor& d, const string &cmd );
-};
-
 class move_pg : public editor_command {
 public:
   move_pg(): editor_command() {};
@@ -406,10 +396,10 @@ public:
   editor_mode run(editor& d, const string &cmd );
 };
 
-class move_column : public editor_command {
+class mv_point : public editor_command {
 public:
-  move_column(): editor_command() {};
-  move_column(vector<string> & ks): editor_command(ks) {};
+  mv_point(): editor_command() {};
+  mv_point(vector<string> & ks): editor_command(ks) {};
   editor_mode run(editor& d, const string &cmd);
 };
 
@@ -421,7 +411,7 @@ private:
   int screen_height;
   int screen_width;
   
-  int mode_padding = 2;
+  int mode_padding = 1;
   editor_mode mode;
 
   display_window *mode_window;
@@ -439,6 +429,11 @@ private:
   
 public:
   enum move_dir { move_y = 0 , move_x };
+  enum anchor_type { no_anchor = 0 ,
+                     line_begin,
+                     line_end,
+                     page_begin,
+                     page_end};
 
   editor() : buffers(new buf_list()) {
 
@@ -453,6 +448,7 @@ public:
                         screen_width,
                         screen_height-mode_padding, // beginY
                         0);
+    
     this->buffer_window  =
       new display_window(screen_height- mode_padding, // num lines 
                         screen_width,    // num cols 
@@ -461,11 +457,13 @@ public:
     
     keymap cmd_map;
 
-    vector<string> move_line_keys {"j","^n","k","^p"};
-    (new move_line(move_line_keys))->keymap_add(cmd_map);
-
-    vector<string> move_col_keys {"l","h","^b","^f"};
-    (new move_column(move_col_keys))->keymap_add(cmd_map);
+    vector<string> mv_point_keys {"j","^n","k",
+                                  "^p" ,"^","0",
+                                  "$","l","h",
+                                  "^b","^f",
+                                  "^a","^e"};
+    mv_point* mv_pt_cmd = new mv_point(mv_point_keys);
+    mv_pt_cmd->keymap_add(cmd_map);
 
     vector<string> move_pg_keys {">","<"," "};
     (new move_pg(move_pg_keys))->keymap_add(cmd_map);
@@ -583,24 +581,46 @@ public:
     return make_pair(y,x);
   }
 
-  point inc_point(point& p, int inc, int dir) {
-    if(dir == 0) {
+  point bol() {
+    return make_pair(cursor.first,0);
+  }
+  
+  point eol() {
+    return make_pair(cursor.first, 6);
+  }
+
+  point inc_point(point p,
+                  int inc,
+                  move_dir dir) {
+
+    if(dir == move_y) {
       return make_point(box(p.first+inc,
                             {0, this->buffer_window->get_height()},
                             {0, this->mode_padding})
                         ,p.second);
-    } else{
+    } else if(dir == move_x) {
       return make_point(p.first,
                         box(p.second + inc,
                             {0,this->buffer_window->get_width()},
                             {0,this->mode_padding}));
+    } else{
+      return cursor;
     }
   }
 
-  void move_point(int inc, move_dir dir) {
-    this->cursor = inc_point(cursor,inc,dir);
+  void move_point(int inc, move_dir dir, anchor_type anchor ) {
+    // compute increment relative to anchor 
+    if(anchor == no_anchor) {
+      this->cursor = inc_point(cursor,inc,dir);
+    } else if (anchor == line_begin) {
+      this->cursor = inc_point(bol(),inc, editor::move_x);
+    } else if (anchor == line_end) {
+      this->cursor = inc_point(eol(),inc, editor::move_x);
+    } else  {
+      return;
+    }
   }
-
+  
   void move_page(int pg_inc) {
     
     int max_lines =
@@ -711,26 +731,25 @@ public:
   }
 };
 
-// display motion commands.
-/**
- * Moving to next line
- */
-editor_mode move_line::run(editor& d, const string &cmd) {
-  if(cmd == "j"|| cmd == "^n"){
-    // Move the cursor but dont do a redisplay
-    d.move_point(1,editor::move_y);
-  } else {
-    d.move_point(-1,editor::move_y);
-  }
-  return command_mode;
-}
 
-editor_mode move_column::run(editor& d, const string &cmd) {
-  if(cmd == "l"|| cmd == "^f"){
-    d.move_point(1,editor::move_x);    // move the cursor but dont do a redisplay
-  } else {
-    d.move_point(-1,editor::move_x);
+/**
+ * point motion commands: make the bindings less explicit. 
+ */
+editor_mode mv_point::run(editor& d, const string &cmd) {
+  if(cmd == "j"|| cmd == "^n") { // move the cursor but dont do a redisplay
+    d.move_point(1,editor::move_y, editor::no_anchor);
+  } else if(cmd =="k" || cmd =="^p")  {
+    d.move_point(-1,editor::move_y, editor::no_anchor);
+  } else if(cmd == "l"|| cmd == "^f"){
+    d.move_point(1,editor::move_x, editor::no_anchor);    // move the cursor but dont do a redisplay
+  } else if(cmd =="h" || cmd =="^b")  {
+    d.move_point(-1,editor::move_x, editor::no_anchor);
+  } else if(cmd == "^" || cmd =="0" || cmd =="^a") {
+    d.move_point(0,editor::move_x, editor::line_begin);
+  } else if (cmd == "$" || cmd == "^e") {
+    d.move_point(0,editor::move_x, editor::line_end);
   }
+  
   return command_mode;
 }
 
