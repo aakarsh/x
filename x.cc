@@ -897,8 +897,6 @@ editor_mode search_fwd::run(editor & d, const string& cmd) {
 int
 main(int argc,char* argv[])
 {
-
-  //XLOG = new logger(); //logging_init();
   app::get_logger().log("x:started");
   editor editor;
 
@@ -914,9 +912,6 @@ main(int argc,char* argv[])
 
   editor.start();
 
-  //logging_end(XLOG);
-
-  //  delete XLOG;
   delete &(app::get_logger()); // close log file
   return 0;
 }
