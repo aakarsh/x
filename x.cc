@@ -426,6 +426,13 @@ public:
   editor_mode run(editor& d, const string &cmd);
 };
 
+class toggle : public editor_command {
+public:
+  toggle(): editor_command() {};
+  toggle(vector<string> & ks): editor_command(ks) {};
+  editor_mode run(editor& d, const string &cmd);
+};
+
 class editor {
 
 private:
@@ -450,7 +457,11 @@ private:
   point cursor;
   int start_line = 0;
 
+
+
 public:
+  bool line_number_show = false;
+
   enum move_dir { move_y = 0 , move_x };
   enum anchor_type { no_anchor = 0 ,
                      line_begin,
@@ -474,9 +485,9 @@ public:
 
     this->buffer_window  =
       new display_window(screen_height- mode_padding, // num lines
-                        screen_width,    // num cols
-                        0,               // beginY
-                        0);              // beginX
+                        screen_width,                 // num cols
+                        0,                            // beginY
+                        0);                           // beginX
 
     keymap cmd_map;
 
@@ -490,6 +501,10 @@ public:
 
     vector<string> move_pg_keys {">","<"," "};
     (new move_pg(move_pg_keys))->keymap_add(cmd_map);
+
+    
+    vector<string> toggle_keys {"."};
+    (new toggle(toggle_keys))->keymap_add(cmd_map);
 
     this->modes.push_back(new x_mode("CMD", cmd_map));
     this->mode = command_mode;
@@ -573,7 +588,7 @@ public:
 
     for(auto line_ptr : lines) {
 
-      if(line_count >=
+      if((line_count - start_line) >=
          this->buffer_window->get_height()) {
         break;
       }
@@ -584,6 +599,12 @@ public:
       }
 
       // iterate through the lines going to cursor poistion
+      if(line_number_show){
+        char ls[256];
+        sprintf(ls,"%5d: ",line_count);
+        this->buffer_window->display_line(string(ls));
+      }
+      
       this->buffer_window->display_line(line_ptr->data);
       this->buffer_window->display_line("\n");
       line_count++;
@@ -623,7 +644,7 @@ public:
     return make_pair(cursor.first, get_line_size());
   }
 
-  int get_line_size(int idx) {
+  int get_line_size(size_t idx) {
     if(idx >= 0 &&
        idx < this->get_current_buffer()->get_lines().size()) {
 
@@ -677,7 +698,6 @@ public:
   }
 
   void move_page(int pg_inc) {
-
     int max_lines =
       this->get_current_buffer()->get_lines().size();
 
@@ -685,13 +705,13 @@ public:
       this->buffer_window->get_height();
 
     int new_start_line =
-      this->start_line + (pg_inc * pg_size);
+      this->start_line + (pg_inc * screen_height);
 
     if(new_start_line <= 0 ) {
       this->start_line = 0;
-    } else if(new_start_line >= max_lines){
+    } else if(new_start_line >= max_lines){      
       this->start_line = max_lines - pg_size;
-    }  else {
+    }  else {      
       this->start_line = new_start_line;
     }
 
@@ -703,7 +723,6 @@ public:
   }
 
   const string parse_cmd() {
-
     char cur = getch();
     string c(1,cur);
 
@@ -743,7 +762,6 @@ public:
 
       // trigger command
       this->run_cmd(this->parse_cmd());
-      //
 
       // run the next command till redisplay becomes necessary
       while(!this->redisplay
@@ -811,12 +829,23 @@ editor_mode mv_point::run(editor& d, const string &cmd) {
 editor_mode move_pg::run(editor& d, const string &cmd) {
   if(cmd == " "|| cmd == ">"){
     d.move_page(+1);    // move the cursor but dont do a redisplay
-  } else {
+  } else if (cmd == "<") {
     d.move_page(-1);
   }
   return command_mode;
 }
 
+editor_mode toggle::run(editor & d, const string& cmd) {
+  if( cmd == ".") {
+    if(d.line_number_show)
+      d.line_number_show = false;
+    else
+      d.line_number_show = true;
+  }
+  
+  d.mark_redisplay();
+  return command_mode;
+}
 
 #define ARRAY_SIZE(x) ((sizeof x) / (sizeof *x))
 char* strlinecat(char * l0,char* l1);
