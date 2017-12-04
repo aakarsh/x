@@ -13,13 +13,17 @@
 #include <unistd.h>
 
 #include <iostream>
+#include <iomanip>
 #include <fstream>
 #include <sstream>
 #include <vector>
 #include <string>
 #include <map>
 
+#include <functional>
 #include <memory>
+#include <thread>
+#include <mutex>
 
 using namespace std;
 class app;
@@ -101,6 +105,97 @@ logger& app::get_logger() {
   return *debug_logger;
 }
 
+// reference:  http://scienceblogs.com/goodmath/2009/02/18/gap-buffer
+
+class gap_line {
+private:
+  const static int default_gap_size = 2;  // 1024
+  int size = 0;
+  int gap_start  = 0;      //exclude gap_start 
+  int gap_end = 0;     //exclude gap_end
+  char* buf;
+  int gap_size  = default_gap_size;
+  
+public:
+  
+  gap_line(int gap_size = default_gap_size): gap_size(default_gap_size) {
+    buf = new char[gap_size];
+    gap_start = 0;
+    gap_end = 0;
+    size = gap_size;
+  }
+  
+  gap_line(const string& data,int gap_size = default_gap_size): gap_line() {
+    for(auto it = data.begin() ; it != data.end() ; it++) {
+      insert_char('a');
+    }
+  }
+
+  void insert_char(char c) {    
+    if(gap_start + gap_end == size) {
+      expand();
+    }
+    
+    //buf[gap_start] = c;
+    gap_start = gap_start + 1;    
+  }
+  
+  string gap_info()  {
+    stringstream ss;    
+
+    ss<<std::setw(10)<<"[gap_start: "<<gap_start<<" gap_end: " <<gap_end<<" size: "<<size<<"]";
+    
+    if(buf != nullptr) {
+      ss<<" data:["<<string(buf,gap_start)<<"]"<<endl;
+    }
+
+    return ss.str();
+  }
+
+  /**
+   * Double the size of the buffer, everytime our gaps meet
+   */
+  void expand() {
+
+    int new_size  = (size == 0) ?  1: 2 * size;
+    char* new_buffer = new char[new_size];
+    
+    /**
+     * Fill till we hit gap_start.
+     */
+    int i = 0;
+    while(i < gap_start) {
+      new_buffer[i] = buf[i];
+      i++;
+    }
+    
+    /**
+     * From the end of the new array keep filling in you have
+     * reached gap_end
+     */
+    int j = 0;
+    while(j < gap_end) {
+      new_buffer[new_size -1 + j] = buf[size - 1 + j];
+      j++;
+    }    
+
+    // Update gap_end to reflect one character past the gap
+    this->gap_end = (new_size  - 1) - gap_end; // old gap end
+
+    //delete buf; // free previous
+    
+    this->buf = new_buffer; // assign new buffer
+    this->size = new_size;  //  why is size not getting updated ?
+    
+  }
+  
+  ~gap_line() {
+    delete buf;
+  }
+  
+};
+
+
 class x_line {
 public:
   // Position relative to the file.
@@ -110,7 +205,8 @@ public:
 
   // x_line data
   string data;
-
+  gap_line gap_data;
+  
   x_line(int line_no,
        streampos fpos,
        int lpos) :
@@ -121,11 +217,13 @@ public:
   x_line(int line_no,
        streampos fpos,
        int lpos,
-       string& data):
+         const string& data):
      line_number(line_no)
     ,file_position(fpos)
     ,line_pos(lpos)
-    ,data(data){}
+    ,data(data)
+    ,gap_data(data)
+  {}
 
   x_line(): x_line(0,0,0) {}
 
@@ -138,6 +236,10 @@ public:
 class buf {
 
 private:
+
+  mutex buf_w_lock;
+  mutex buf_r_lock;
+
   // List of buffer errors
   enum buffer_error { buffer_noerror,
                       buffer_file_errory,
@@ -175,6 +277,12 @@ private:
   int displayLine;
 
 public:
+
+  class buf_write_cmd {
+    virtual void write_buf(buf* buf) {
+      //lock()
+    }
+  };
 
   void set_display_border(border b) {
     this->display_border = b;
@@ -365,12 +473,12 @@ public:
   string read_input(const string &prompt ) {
     clear();
     display_line(0,0,prompt);
-    char input[256];    
+    char input[256];
     echo();
     wgetnstr(window, input, 256);
     clear();
     noecho();
-    return string(input);      
+    return string(input);
   }
 
   ~display_window() {
@@ -413,6 +521,7 @@ class editor_command {
   friend class editor;
   vector<string> keys;
 public:
+  
   editor_command() {};
   editor_command(vector<string> & ks):keys(ks) {};
 
@@ -420,42 +529,53 @@ public:
     return this->keys;
   }
 
-  void keymap_add(keymap& map) {
-    for(auto &key : getKeys()) {
-      map.insert({key,this});
-    }
-  }
+  static void keymap_add( keymap& map, editor_command* ec);
 
-  virtual editor_mode run (editor &display, const string& cmd ) = 0;
+  virtual editor_mode operator() (editor &display, const string& cmd ) = 0;
+  
 };
+
+void editor_command::keymap_add(keymap& map, editor_command* ec)
+ {
+    for(auto &key : ec->getKeys()) {
+      map.insert({key,ec});
+    }
+ }
 
 // TODO: auto-gen
 class move_pg : public editor_command {
 public:
   move_pg(): editor_command() {};
   move_pg(vector<string> & ks): editor_command(ks) {};
-  editor_mode run(editor& d, const string &cmd );
+  editor_mode operator()(editor& d, const string &cmd );
 };
 
 class search_fwd : public editor_command {
 public:
   search_fwd(): editor_command() {};
   search_fwd(vector<string> & ks): editor_command(ks) {};
-  editor_mode run(editor& d, const string &cmd );
+  editor_mode operator()(editor& d, const string &cmd );
+};
+
+class open_file : public editor_command {
+public:
+  open_file(): editor_command() {};
+  open_file(vector<string> & ks): editor_command(ks) {};
+  editor_mode operator() (editor& d, const string &cmd );
 };
 
 class mv_point : public editor_command {
 public:
   mv_point(): editor_command() {};
   mv_point(vector<string> & ks): editor_command(ks) {};
-  editor_mode run(editor& d, const string &cmd);
+  editor_mode operator()(editor& d, const string &cmd);
 };
 
 class toggle : public editor_command {
 public:
   toggle(): editor_command() {};
   toggle(vector<string> & ks): editor_command(ks) {};
-  editor_mode run(editor& d, const string &cmd);
+  editor_mode operator()(editor& d, const string &cmd);
 };
 
 class editor {
@@ -480,15 +600,15 @@ private:
   typedef pair<int,int> point;
 
   point cursor;
-  int start_line = 0;
-
-
+  int   start_line = 0;
 
 public:
   bool line_number_show = false;
 
   enum move_dir { move_y = 0 , move_x };
   enum anchor_type { no_anchor = 0 ,
+                     file_begin,
+                     file_end,
                      line_begin,
                      line_end,
                      page_begin,
@@ -519,25 +639,25 @@ public:
 
     vector<string> mv_point_keys {"j","^n","k",
                                   "^p" ,"^","0",
-                                  "$","l","h",
+                                  "$","l","h","G",
                                   "^b","^f",
                                   "^a","^e"};
-    mv_point* mv_pt_cmd = new mv_point(mv_point_keys);
-    mv_pt_cmd->keymap_add(cmd_map);
+
+    editor_command::keymap_add(cmd_map,new mv_point(mv_point_keys));
 
     vector<string> move_pg_keys {">","<"," ","^v", "^V"};
-    (new move_pg(move_pg_keys))->keymap_add(cmd_map);
+    editor_command::keymap_add(cmd_map,new move_pg(move_pg_keys));
     
     vector<string> toggle_keys {"."};
-    (new toggle(toggle_keys))->keymap_add(cmd_map);
+    editor_command::keymap_add(cmd_map,new toggle(toggle_keys));
+
+    vector<string> buffer_keys {"o"};
+    editor_command::keymap_add(cmd_map,new open_file(buffer_keys));
 
     vector<string> search_fwd_keys {"^s","/"};
-    search_fwd* fwd = new search_fwd(search_fwd_keys);
-    fwd->keymap_add(cmd_map);
-    fwd->keymap_add(search_map);
-    (new search_fwd(search_fwd_keys))->keymap_add(cmd_map);
-
+    editor_command::keymap_add(cmd_map,new search_fwd(search_fwd_keys));
     
+
     this->modes.push_back(new x_mode("CMD", cmd_map));
     //    this->modes.push_back(new x_mode("INSERT", ins_map));
     this->modes.push_back(new x_mode("SEARCH", search_map));
@@ -583,7 +703,7 @@ public:
       if(!editor_command)
         return;
 
-      editor_mode nextMode = editor_command->run(*this,cmd);
+      editor_mode nextMode = (*editor_command)(*this,cmd);
       this->change_mode(nextMode);
     }
   }
@@ -616,7 +736,7 @@ public:
 
   void display_buffer() {
     app::get_logger().log("display_buffer");
-
+    this->buffer_window->clear();
     this->buffer_window->rewind();
 
     buf* buffer =
@@ -643,8 +763,11 @@ public:
         char ls[256];
         sprintf(ls,"%5d: ",line_count);
         this->buffer_window->display_line(string(ls));
+
+
+        this->buffer_window->display_line(line_ptr->gap_data.gap_info());
       }
-      
+
       this->buffer_window->display_line(line_ptr->data);
       this->buffer_window->display_line("\n");
       line_count++;
@@ -680,6 +803,13 @@ public:
     return make_pair(cursor.first,0);
   }
 
+  point bof() {
+    return make_pair(0,0);
+  }
+  
+  point eof() {
+    return make_pair(this->get_current_buffer()->get_lines().size(),0);
+  }
   point eol() {
     return make_pair(cursor.first, get_line_size());
   }
@@ -732,7 +862,13 @@ public:
       this->cursor = inc_point(bol(),inc, editor::move_x);
     } else if (anchor == line_end) {
       this->cursor = inc_point(eol(),inc, editor::move_x);
-    } else  {
+    } else if (anchor == file_begin) {
+      this->cursor = inc_point(bof(),inc,editor::move_y);
+    } else if (anchor == file_end) {
+      this->cursor = inc_point(eof(),inc,editor::move_y);
+    }
+    
+    else  {
       return;
     }
   }
@@ -749,9 +885,9 @@ public:
 
     if(new_start_line <= 0 ) {
       this->start_line = 0;
-    } else if(new_start_line >= max_lines){      
+    } else if(new_start_line >= max_lines){
       this->start_line = max_lines - pg_size;
-    }  else {      
+    }  else {
       this->start_line = new_start_line;
     }
 
@@ -846,7 +982,7 @@ public:
 /**
  * point motion commands: make the bindings less explicit.
  */
-editor_mode mv_point::run(editor& d, const string &cmd) {
+editor_mode mv_point::operator()(editor& d, const string &cmd) {
   if(cmd == "j"|| cmd == "^n") { // move the cursor but dont do a redisplay
     d.move_point(1,editor::move_y, editor::no_anchor);
   } else if(cmd =="k" || cmd =="^p")  {
@@ -859,12 +995,14 @@ editor_mode mv_point::run(editor& d, const string &cmd) {
     d.move_point(0,editor::move_x, editor::line_begin);
   } else if (cmd == "$" || cmd == "^e") {
     d.move_point(0,editor::move_x, editor::line_end);
+  } else if (cmd == "G") {
+    d.move_point(0,editor::move_y, editor::file_end);
   }
 
   return command_mode;
 }
 
-editor_mode move_pg::run(editor& d, const string &cmd) {
+editor_mode move_pg::operator()(editor& d, const string &cmd) {
   if(cmd == " "|| cmd == ">" || cmd == "^v"){
     d.move_page(+1);    // move the cursor but dont do a redisplay
   } else if (cmd == "<" || cmd == "^V") {
@@ -873,31 +1011,46 @@ editor_mode move_pg::run(editor& d, const string &cmd) {
   return command_mode;
 }
 
-editor_mode toggle::run(editor & d, const string& cmd) {
-  if( cmd == "." ) {    
+editor_mode toggle::operator()(editor & d, const string& cmd) {
+  if( cmd == "." ) {
     if(d.line_number_show)
       d.line_number_show = false;
     else
       d.line_number_show = true;
   }
-  
+
   d.mark_redisplay();
   return command_mode;
 }
 
-editor_mode search_fwd::run(editor & d, const string& cmd) {
-  if( cmd == "/" ) {    
-    string search_string  = d.mode_read_input(string("Search Forward :"));    
+editor_mode search_fwd::operator()(editor & d, const string& cmd) {
+  if( cmd == "/" ) {
+    string search_string  = d.mode_read_input(string("Search Forward :"));
     d.mark_redisplay();
   } else if (cmd == "n") {
   }
   return search_mode;
 }
 
+editor_mode open_file::operator()(editor & d, const string& cmd) {
+  if( cmd == "o" ) {
+    string file_path  = d.mode_read_input(string("File:"));
+    buf* new_buf  = new buf(file_path,file_path);
+    d.append_buffer(new_buf);
+    
+    d.mark_redisplay();
+  } 
+  return command_mode;
+}
+
+
+
 int
 main(int argc,char* argv[])
 {
   app::get_logger().log("x:started");
+
+
   editor editor;
 
   string buffer_name("x.cc");
@@ -915,4 +1068,3 @@ main(int argc,char* argv[])
   delete &(app::get_logger()); // close log file
   return 0;
 }
-
