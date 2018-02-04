@@ -1050,7 +1050,6 @@ main(int argc,char* argv[])
 {
   app::get_logger().log("x:started");
 
-
   editor editor;
 
   string buffer_name("x.cc");
@@ -1062,7 +1061,6 @@ main(int argc,char* argv[])
   }
 
   editor.append_buffer(new buf(buffer_name, file_path));
-
   editor.start();
 
   delete &(app::get_logger()); // close log file
