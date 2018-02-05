@@ -27,26 +27,6 @@
 
 using namespace std;
 class app;
-class logger;
-
-class app {
-  friend class logger;
-
-public:
-  static bool debug_mode;
-  static string debug_log_file;
-  static logger* debug_logger;
-  static logger& get_logger();
-};
-
-#ifdef DEBUG
-bool app::debug_mode = true;
-#else
-bool app::debug_mode = false;
-#endif
-string app::debug_log_file = "x-debug.log";
-
-const char* log_file ="x.log";
 
 enum log_level { LOG_LEVEL_INFO, LOG_LEVEL_DEBUG};
 
@@ -54,47 +34,71 @@ class logger {
 private:
   // static instance of logger.
   static logger* debug_logger;
-
 public:
   log_level level;
-  FILE* debug_file;
   ofstream debug_stream;
   static bool debug_mode;
 
-  logger():
-      level(LOG_LEVEL_INFO)
-      ,debug_stream(app::debug_log_file,
-                   std::ofstream::out)
-  {
-    if(app::debug_mode) {
-      this->level = LOG_LEVEL_DEBUG;
-      this->debug_file = fopen("foo.log","w+");
-      this->debug_stream.open(app::debug_log_file,
-                             std::ofstream::out);
-    }
-  }
-
-  ostream& out(){
-    return this->debug_stream;
-  }
-
-  logger& log(const string& str) {
-    ostream &log = out();
-    if(app::debug_mode) {
-      log<<str<<endl;
-    }
-    log.flush();
-    return *this;
-  }
-
+  logger();
   ~logger() {
-#ifdef DEBUG
-    this->debug_stream.close();
-    //this->debug_file.close();
-    fclose(this->debug_file);
-#endif
+    //    if(logger::debug_mode)
+    //      this->debug_stream.close();
+  }
+  ostream& out();
+  logger& log(const string& str);
+};
+
+class app {
+  friend class logger;
+public:
+  static bool debug_mode;
+  static string debug_log_file;
+  static logger* debug_logger;
+  static logger& get_logger();
+
+  app() {
+    if(!debug_logger) {
+      this->debug_logger = new logger();
+    }
+    debug_logger->log("x:started");
+  }
+
+  ~app() {
+    debug_logger->log("x:ended");
+    delete &(app::get_logger()); // close log file
   }
 };
+
+#ifdef DEBUG
+bool app::debug_mode = true;
+#else
+bool app::debug_mode = true;
+#endif
+string app::debug_log_file = "x-debug.log";
+
+const char* log_file ="x.log";
+
+logger::logger() : level(LOG_LEVEL_INFO) {
+  this->debug_stream.open(app::debug_log_file,
+			  std::ofstream::out);
+  if(app::debug_mode) {
+    this->level = LOG_LEVEL_DEBUG;
+  }
+  this->debug_stream<<"*start*:x logger"<<endl;
+}
+
+ostream& logger::out(){
+  return this->debug_stream;
+}
+
+logger& logger::log(const string& str) {
+  ostream &log = out();
+  if(app::debug_mode) {
+    log<<str<<endl;
+  }
+  log.flush();
+  return *this;
+}
 
 logger* app::debug_logger;
 
@@ -105,46 +109,47 @@ logger& app::get_logger() {
   return *debug_logger;
 }
 
+
 // reference:  http://scienceblogs.com/goodmath/2009/02/18/gap-buffer
 
 class gap_line {
 private:
   const static int default_gap_size = 2;  // 1024
   int size = 0;
-  int gap_start  = 0;      //exclude gap_start 
+  int gap_start  = 0;      //exclude gap_start
   int gap_end = 0;     //exclude gap_end
   char* buf;
   int gap_size  = default_gap_size;
-  
+
 public:
-  
+
   gap_line(int gap_size = default_gap_size): gap_size(default_gap_size) {
     buf = new char[gap_size];
     gap_start = 0;
     gap_end = 0;
     size = gap_size;
   }
-  
+
   gap_line(const string& data,int gap_size = default_gap_size): gap_line() {
     for(auto it = data.begin() ; it != data.end() ; it++) {
       insert_char('a');
     }
   }
 
-  void insert_char(char c) {    
+  void insert_char(char c) {
     if(gap_start + gap_end == size) {
       expand();
     }
-    
+
     //buf[gap_start] = c;
-    gap_start = gap_start + 1;    
+    gap_start = gap_start + 1;
   }
-  
+
   string gap_info()  {
-    stringstream ss;    
+    stringstream ss;
 
     ss<<std::setw(10)<<"[gap_start: "<<gap_start<<" gap_end: " <<gap_end<<" size: "<<size<<"]";
-    
+
     if(buf != nullptr) {
       ss<<" data:["<<string(buf,gap_start)<<"]"<<endl;
     }
@@ -159,7 +164,7 @@ public:
 
     int new_size  = (size == 0) ?  1: 2 * size;
     char* new_buffer = new char[new_size];
-    
+
     /**
      * Fill till we hit gap_start.
      */
@@ -168,7 +173,7 @@ public:
       new_buffer[i] = buf[i];
       i++;
     }
-    
+
     /**
      * From the end of the new array keep filling in you have
      * reached gap_end
@@ -177,22 +182,22 @@ public:
     while(j < gap_end) {
       new_buffer[new_size -1 + j] = buf[size - 1 + j];
       j++;
-    }    
+    }
 
     // Update gap_end to reflect one character past the gap
     this->gap_end = (new_size  - 1) - gap_end; // old gap end
 
     //delete buf; // free previous
-    
+
     this->buf = new_buffer; // assign new buffer
     this->size = new_size;  //  why is size not getting updated ?
-    
+
   }
-  
+
   ~gap_line() {
     delete buf;
   }
-  
+
 };
 
 
@@ -206,7 +211,7 @@ public:
   // x_line data
   string data;
   gap_line gap_data;
-  
+
   x_line(int line_no,
        streampos fpos,
        int lpos) :
@@ -254,16 +259,16 @@ private:
   // file stream backing the buffer.
   fstream buffer_stream;
 
-  buffer_error error_code;
+  buffer_error error_code = buffer_noerror;
 
   // size of buffer.
-  off_t size;
+  off_t size = 0;
 
-  off_t fsize;
-  bool modified;
+  off_t fsize = 0;
+  bool modified = false;
 
   // current line
-  int current_lineIndex ;
+  int current_lineIndex = 0 ;
 
   // list of lines of the buffer.
   vector<x_line*> lines;
@@ -274,7 +279,7 @@ private:
   border display_border;
 
   // index in buffer of current point
-  int displayLine;
+  int displayLine = 0;
 
 public:
 
@@ -353,8 +358,10 @@ public:
     string line;
     int line_number = 0;
     this->clear();
+
     while(getline(in,line)) {// the whole file is read into mem
       x_line* cur =  new x_line(line_number, in.tellg(), 0, line);
+      app::get_logger().log(line);
       lines.push_back(cur);
     }
   }
@@ -365,7 +372,7 @@ class buf_list {
 
 private:
   vector<buf*> buffers;
-  buf* current_buffer;
+  buf* current_buffer = NULL;
 
 public:
   buf_list() = default;
@@ -385,11 +392,9 @@ public:
     return *this;
   }
 
-
   int num_buffers()  {
     return this->buffers.size();
   }
-
 
   buf* get_current_buffer() {
     return this->current_buffer;
@@ -418,10 +423,8 @@ public:
     ,beginY(by)
     ,beginX(bx) {
 
-    window = newwin(num_lines,
-                    numColumns,
-                    beginY,
-                    beginX);
+    window = newwin(num_lines, numColumns,
+                    beginY, beginX);
 
     // start with cursor at beginning
     this->move_cursor(beginY,beginX);
@@ -484,7 +487,6 @@ public:
   ~display_window() {
     delwin(window);
   }
-
 };
 
 
@@ -506,13 +508,11 @@ private:
 
 public:
   x_mode(const string& name, const keymap &cmds) :
-     mode_name(name)
-    ,mode_map(cmds){}
+     mode_name(name), mode_map(cmds){}
 
   editor_command* lookup(const string& cmd) {
     return mode_map[cmd];
   }
-
   string& get_name() { return mode_name; }
 };
 
@@ -521,7 +521,6 @@ class editor_command {
   friend class editor;
   vector<string> keys;
 public:
-  
   editor_command() {};
   editor_command(vector<string> & ks):keys(ks) {};
 
@@ -532,15 +531,15 @@ public:
   static void keymap_add( keymap& map, editor_command* ec);
 
   virtual editor_mode operator() (editor &display, const string& cmd ) = 0;
-  
+  ~editor_command() {}
 };
 
 void editor_command::keymap_add(keymap& map, editor_command* ec)
- {
-    for(auto &key : ec->getKeys()) {
-      map.insert({key,ec});
-    }
- }
+{
+  for(auto &key : ec->getKeys()) {
+    map.insert({key,ec});
+  }
+}
 
 // TODO: auto-gen
 class move_pg : public editor_command {
@@ -583,19 +582,19 @@ class editor {
 private:
   vector<x_mode*> modes;
 
-  int screen_height;
-  int screen_width;
+  int screen_height = 0;
+  int screen_width  = 0;
 
   int mode_padding = 1;
-  editor_mode mode;
+  editor_mode mode = command_mode;
 
-  display_window *mode_window;
-  display_window *buffer_window;
+  display_window *mode_window = NULL;
+  display_window *buffer_window = NULL;
 
   buf_list *buffers;
 
-  bool redisplay; // trigger a buffer-redisplay of buffer
-  bool quit;      // quit will cause the display loop to exit.
+  bool redisplay = false; // trigger a buffer-redisplay of buffer
+  bool quit = false;      // quit will cause the display loop to exit.
 
   typedef pair<int,int> point;
 
@@ -614,8 +613,12 @@ public:
                      page_begin,
                      page_end};
 
-  editor() : buffers(new buf_list()) {
+  editor() : buffers(new buf_list()) { }
 
+  /**
+   * Start ncurses
+   */
+  void init() {
     // determine the screen
     initscr();
 
@@ -647,7 +650,7 @@ public:
 
     vector<string> move_pg_keys {">","<"," ","^v", "^V"};
     editor_command::keymap_add(cmd_map,new move_pg(move_pg_keys));
-    
+
     vector<string> toggle_keys {"."};
     editor_command::keymap_add(cmd_map,new toggle(toggle_keys));
 
@@ -656,7 +659,7 @@ public:
 
     vector<string> search_fwd_keys {"^s","/"};
     editor_command::keymap_add(cmd_map,new search_fwd(search_fwd_keys));
-    
+
 
     this->modes.push_back(new x_mode("CMD", cmd_map));
     //    this->modes.push_back(new x_mode("INSERT", ins_map));
@@ -735,7 +738,8 @@ public:
   }
 
   void display_buffer() {
-    app::get_logger().log("display_buffer");
+    //app::get_logger().log("display_buffer");
+
     this->buffer_window->clear();
     this->buffer_window->rewind();
 
@@ -764,7 +768,6 @@ public:
         sprintf(ls,"%5d: ",line_count);
         this->buffer_window->display_line(string(ls));
 
-
         this->buffer_window->display_line(line_ptr->gap_data.gap_info());
       }
 
@@ -783,6 +786,7 @@ public:
   int box(int value,
           pair<int,int>  limits,
           pair<int,int>  padding) {
+
     int min = limits.first  - padding.first;
     int max = limits.second - padding.second;
 
@@ -806,10 +810,11 @@ public:
   point bof() {
     return make_pair(0,0);
   }
-  
+
   point eof() {
     return make_pair(this->get_current_buffer()->get_lines().size(),0);
   }
+
   point eol() {
     return make_pair(cursor.first, get_line_size());
   }
@@ -824,7 +829,6 @@ public:
         return cur->size() - 1;
       }
     }
-
     return 0;
   }
 
@@ -867,7 +871,7 @@ public:
     } else if (anchor == file_end) {
       this->cursor = inc_point(eof(),inc,editor::move_y);
     }
-    
+
     else  {
       return;
     }
@@ -920,6 +924,7 @@ public:
   }
 
   void start() {
+    this->init();
     this->quit = false;
 
     while(!this->quit) { // quit
@@ -943,10 +948,9 @@ public:
         // get-input
         this->run_cmd(this->parse_cmd());
 
-
         // move the window to current place
         this->display_cursor();
-        app::get_logger().log("cursor_line");
+        //app::get_logger().log("cursor_line");
       }
 
       // need to reset to do a redisplay
@@ -1037,32 +1041,34 @@ editor_mode open_file::operator()(editor & d, const string& cmd) {
     string file_path  = d.mode_read_input(string("File:"));
     buf* new_buf  = new buf(file_path,file_path);
     d.append_buffer(new_buf);
-    
+
     d.mark_redisplay();
-  } 
+  }
   return command_mode;
 }
-
-
 
 int
 main(int argc,char* argv[])
 {
-  app::get_logger().log("x:started");
+  app a;
+  //app::get_logger().log("x:started");
 
   editor editor;
-
   string buffer_name("x.cc");
   string file_path("/home/aakarsh/src/c/x/x.cc");
 
   if(argc > 1) {     // add buffer to editor
     buffer_name = argv[1];
     file_path   = argv[1];
+  }else {
+    cout<<"Usage: x <filename>"<<endl;
+    goto end;
   }
 
   editor.append_buffer(new buf(buffer_name, file_path));
   editor.start();
 
-  delete &(app::get_logger()); // close log file
+ end:
+
   return 0;
 }
